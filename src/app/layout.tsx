@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
+import { Navigation } from '@/components/layout/navigation';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 const geistSans = localFont({
   src: './fonts/GeistVF.woff',
@@ -19,17 +21,23 @@ export const metadata: Metadata = {
     'Chat with research papers using RAG and AI. Automatically collect papers, get insights, and explore research trends.',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <Navigation user={user} />
+        <main className="min-h-screen">{children}</main>
       </body>
     </html>
   );

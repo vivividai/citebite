@@ -18,12 +18,13 @@
 
 ### 1.2 Database Schema & Supabase CLI Setup
 
-- [ ] Initialize Supabase CLI in project (`npx supabase init`)
-- [ ] Link to remote Supabase project (`npx supabase link`)
-- [ ] Create SQL migration files with schema (Users, Collections, Papers, CollectionPapers, Conversations, Messages, Citations)
-- [ ] Apply migrations to remote database (`npx supabase db push`)
-- [ ] Generate TypeScript types from schema (`npx supabase gen types typescript`)
-- [ ] **E2E Test**: Connect to database and query users table with Supabase client
+- [x] Initialize Supabase CLI in project (`npx supabase init`)
+- [x] Start local Supabase development server (`npx supabase start`) - using local DB instead of remote
+- [x] Create SQL migration files with schema (Users, Collections, Papers, CollectionPapers, Conversations, Messages) - Citations stored in Messages.cited_papers
+- [x] Apply migrations to local database (`npx supabase db reset`)
+- [x] Generate TypeScript types from schema (`npx supabase gen types typescript`)
+- [x] Create Supabase client helpers (client-side and server-side)
+- [x] **E2E Test**: Connect to database and query users table with Supabase client
 
 ### 1.3 Supabase Authentication
 

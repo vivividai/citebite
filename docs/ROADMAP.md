@@ -45,11 +45,11 @@
 
 ### 1.5 Semantic Scholar API Integration _(→ [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
-- [ ] Create Semantic Scholar API client (`lib/semantic-scholar/client.ts`)
-- [ ] Implement paper search function with filters (year, citations, Open Access)
-- [ ] Add retry logic and exponential backoff
-- [ ] Set up Redis connection for caching (24h TTL)
-- [ ] **E2E Test**: Search for papers on a topic and verify results
+- [x] Create Semantic Scholar API client (`lib/semantic-scholar/client.ts`)
+- [x] Implement paper search function with filters (year, citations, Open Access)
+- [x] Add retry logic and exponential backoff
+- [x] Set up Redis connection for caching (24h TTL)
+- [x] **E2E Test**: Search for papers on a topic and verify results
 
 ### 1.6 BullMQ & Redis Setup _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
 

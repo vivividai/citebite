@@ -12,7 +12,7 @@
 - **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증
-- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Prisma, Supabase Storage
+- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase CLI, SQL migrations, Supabase Storage
 
 ---
 
@@ -97,17 +97,19 @@ const pdfDownloadWorker = new Worker(
 );
 
 pdfDownloadWorker.on('completed', async job => {
-  await prisma.paper.update({
-    where: { paperId: job.data.paperId },
-    data: { vectorStatus: 'processing' },
-  });
+  const supabase = createServerSupabaseClient();
+  await supabase
+    .from('papers')
+    .update({ vector_status: 'processing' })
+    .eq('paper_id', job.data.paperId);
 });
 
 pdfDownloadWorker.on('failed', async (job, err) => {
-  await prisma.paper.update({
-    where: { paperId: job!.data.paperId },
-    data: { vectorStatus: 'failed' },
-  });
+  const supabase = createServerSupabaseClient();
+  await supabase
+    .from('papers')
+    .update({ vector_status: 'failed' })
+    .eq('paper_id', job!.data.paperId);
 });
 ```
 
@@ -121,18 +123,23 @@ const pdfIndexWorker = new Worker(
   'pdf-index',
   async job => {
     const { collectionId, paperId, pdfBuffer } = job.data;
+    const supabase = createServerSupabaseClient();
 
-    const collection = await prisma.collection.findUnique({
-      where: { id: collectionId },
-    });
+    const { data: collection } = await supabase
+      .from('collections')
+      .select('file_search_store_id')
+      .eq('id', collectionId)
+      .single();
 
-    const paper = await prisma.paper.findUnique({
-      where: { paperId },
-    });
+    const { data: paper } = await supabase
+      .from('papers')
+      .select('*')
+      .eq('paper_id', paperId)
+      .single();
 
     // Gemini File Search Store에 업로드
     await geminiService.uploadToStore(
-      collection.fileSearchStoreId!,
+      collection.file_search_store_id!,
       pdfBuffer,
       {
         paper_id: paperId,
@@ -151,10 +158,11 @@ const pdfIndexWorker = new Worker(
 );
 
 pdfIndexWorker.on('completed', async job => {
-  await prisma.paper.update({
-    where: { paperId: job.data.paperId },
-    data: { vectorStatus: 'completed' },
-  });
+  const supabase = createServerSupabaseClient();
+  await supabase
+    .from('papers')
+    .update({ vector_status: 'completed' })
+    .eq('paper_id', job.data.paperId);
 });
 ```
 
@@ -171,10 +179,11 @@ const insightWorker = new Worker(
 
     const insights = await generateInsights(collectionId); // 앞서 정의한 함수
 
-    await prisma.collection.update({
-      where: { id: collectionId },
-      data: { insightSummary: insights },
-    });
+    const supabase = createServerSupabaseClient();
+    await supabase
+      .from('collections')
+      .update({ insight_summary: insights })
+      .eq('id', collectionId);
 
     return { success: true };
   },
@@ -233,30 +242,30 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const collection = await prisma.collection.findUnique({
-    where: { id: params.id },
-    include: {
-      papers: {
-        select: {
-          paper: { select: { paperId: true, vectorStatus: true } },
-        },
-      },
-    },
-  });
+  const supabase = createServerSupabaseClient();
 
-  const total = collection.papers.length;
-  const completed = collection.papers.filter(
-    p => p.paper.vectorStatus === 'completed'
-  ).length;
-  const failed = collection.papers.filter(
-    p => p.paper.vectorStatus === 'failed'
-  ).length;
+  const { data: collectionPapers } = await supabase
+    .from('collection_papers')
+    .select(
+      `
+      paper:papers(paper_id, vector_status)
+    `
+    )
+    .eq('collection_id', params.id);
+
+  const total = collectionPapers?.length || 0;
+  const completed =
+    collectionPapers?.filter(cp => cp.paper.vector_status === 'completed')
+      .length || 0;
+  const failed =
+    collectionPapers?.filter(cp => cp.paper.vector_status === 'failed')
+      .length || 0;
 
   return NextResponse.json({
     total,
     completed,
     failed,
-    progress: (completed / total) * 100,
+    progress: total > 0 ? (completed / total) * 100 : 0,
   });
 }
 
@@ -490,10 +499,19 @@ export async function middleware(req: NextRequest) {
 
 **역할**: 데이터베이스 수준에서 사용자별 접근 제어
 
-**핵심 정책 예시:**
+**핵심 정책 예시 (SQL Migration 파일로 작성):**
+
+```bash
+# RLS 정책을 위한 마이그레이션 생성
+npx supabase migration new enable_rls_policies
+```
 
 ```sql
--- Collections 테이블: 사용자는 자신의 컬렉션만 조회/수정 가능
+-- supabase/migrations/YYYYMMDD_enable_rls_policies.sql
+
+-- Collections 테이블: RLS 활성화 및 정책 설정
+ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
+
 CREATE POLICY "Users can only see their own collections"
 ON collections FOR SELECT
 TO authenticated
@@ -504,19 +522,30 @@ ON collections FOR UPDATE
 TO authenticated
 USING (user_id = auth.uid());
 
--- Conversations 테이블: 사용자는 자신의 대화만 접근 가능
+CREATE POLICY "Users can insert their own collections"
+ON collections FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+
+-- Conversations 테이블: RLS 활성화
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+
 CREATE POLICY "Users can only access their own conversations"
 ON conversations FOR ALL
 TO authenticated
 USING (user_id = auth.uid());
 
 -- Papers 테이블: 모든 인증된 사용자가 조회 가능 (공개 데이터)
+ALTER TABLE papers ENABLE ROW LEVEL SECURITY;
+
 CREATE POLICY "Authenticated users can view all papers"
 ON papers FOR SELECT
 TO authenticated
 USING (true);
 
 -- Messages 테이블: 자신의 대화에 속한 메시지만 접근
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
 CREATE POLICY "Users can only access messages from their conversations"
 ON messages FOR ALL
 TO authenticated
@@ -529,11 +558,12 @@ USING (
 
 **적용 방법:**
 
-```sql
--- RLS 활성화
-ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+```bash
+# 로컬에 적용
+npx supabase db reset
+
+# 원격에 적용
+npx supabase db push
 ```
 
 **주의사항:**
@@ -541,6 +571,7 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 - Service Role Key는 RLS를 우회하므로 서버에서만 사용
 - Anon Key는 RLS 정책을 준수
 - 복잡한 조인은 성능 영향 가능 (인덱스 최적화 필요)
+- RLS 정책은 SQL 마이그레이션 파일로 버전 관리
 
 ---
 
@@ -549,20 +580,29 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 #### 3.2.1 데이터베이스 쿼리 최적화
 
 ```typescript
-// N+1 쿼리 방지: include로 eager loading
-const collections = await prisma.collection.findMany({
-  include: {
-    papers: { include: { paper: true } }, // 한 번에 로드
-    _count: { select: { conversations: true } }
-  }
-});
+// N+1 쿼리 방지: 적절한 JOIN 사용
+const supabase = createServerSupabaseClient();
+const { data: collections } = await supabase
+  .from('collections')
+  .select(
+    `
+    *,
+    collection_papers(
+      paper:papers(*)
+    ),
+    conversations(count)
+  `
+  )
+  .eq('user_id', userId);
+```
 
-// 인덱스 활용
-// Prisma Schema에 @@index 추가
-model Collection {
-  // ...
-  @@index([userId, isPublic])
-}
+**인덱스 추가 (SQL Migration):**
+
+```sql
+-- supabase/migrations/YYYYMMDD_add_indexes.sql
+CREATE INDEX idx_collections_user_id_is_public ON collections(user_id, is_public);
+CREATE INDEX idx_collection_papers_collection_id ON collection_papers(collection_id);
+CREATE INDEX idx_conversations_user_id ON conversations(user_id);
 ```
 
 #### 3.2.2 캐싱 전략

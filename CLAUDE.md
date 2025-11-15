@@ -27,7 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Frontend**: Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS, shadcn/ui
 **Backend**: Next.js API Routes, Supabase Auth
-**Database**: Supabase PostgreSQL (Prisma ORM)
+**Database**: Supabase PostgreSQL (Supabase Client + SQL migrations)
 **Vector DB**: Gemini File Search API (managed RAG)
 **Storage**: Supabase Storage (PDF files with CDN)
 **Background Jobs**: BullMQ + Redis
@@ -46,7 +46,7 @@ Technical documentation is organized by concern for easier navigation:
 - **[EXTERNAL_APIS.md](./docs/planning/EXTERNAL_APIS.md)** - Semantic Scholar and Gemini File Search API integration guides with detailed endpoint documentation
 - **[FRONTEND.md](./docs/planning/FRONTEND.md)** - Frontend stack (Next.js, React, UI libraries, state management, component patterns)
 - **[BACKEND.md](./docs/planning/BACKEND.md)** - Backend stack (API routes, authentication, input validation, HTTP clients)
-- **[DATABASE.md](./docs/planning/DATABASE.md)** - Database design (PostgreSQL schema, Prisma ORM, Supabase Storage, RLS policies)
+- **[DATABASE.md](./docs/planning/DATABASE.md)** - Database design (PostgreSQL schema, Supabase CLI, SQL migrations, Supabase Storage, RLS policies)
 - **[INFRASTRUCTURE.md](./docs/planning/INFRASTRUCTURE.md)** - Background jobs (BullMQ), deployment (Vercel, Railway), security, testing, and cost analysis
 - **[ROADMAP.md](./docs/ROADMAP.md)** - Detailed implementation checklist with 8 phases (~110 testable tasks)
 
@@ -80,8 +80,14 @@ cp .env.example .env.local
 # - SEMANTIC_SCHOLAR_API_KEY
 # - REDIS_URL (for BullMQ)
 
-# Run database migrations
-npx prisma migrate dev
+# Initialize Supabase (first time only)
+npx supabase init
+
+# Link to your Supabase project
+npx supabase link --project-ref <your-project-ref>
+
+# Pull remote schema (or push local migrations)
+npx supabase db pull
 
 # Start development server
 npm run dev
@@ -110,13 +116,15 @@ citebite/
 │   ├── components/            # React components
 │   ├── lib/                   # Utilities
 │   │   ├── supabase/         # Supabase client (client & server)
-│   │   ├── db/               # Prisma client, schemas
+│   │   ├── db/               # Database helpers and types
 │   │   ├── jobs/             # BullMQ job definitions
 │   │   ├── gemini/           # Gemini File Search client
 │   │   ├── semantic-scholar/ # Semantic Scholar API client
 │   │   └── storage/          # Supabase Storage helpers
 │   └── types/                # TypeScript types
-├── prisma/                    # Database schema and migrations
+├── supabase/
+│   ├── migrations/           # SQL migration files
+│   └── config.toml           # Supabase configuration
 ├── public/                    # Static assets
 ├── tests/                     # Test files
 └── .env.example              # Environment variable template
@@ -199,7 +207,7 @@ For detailed security guide, see [INFRASTRUCTURE.md - Security Best Practices](.
 
 - Cache server state with React Query and automatic refetching
 - Cache Semantic Scholar API responses in Redis (24 hours)
-- Prevent N+1 queries with Prisma `include`
+- Prevent N+1 queries with proper JOIN queries
 - Lazy load conversation messages (paginate when >50 messages)
 
 For detailed optimization strategies, see [INFRASTRUCTURE.md - Performance Optimization](./docs/planning/INFRASTRUCTURE.md).
@@ -212,6 +220,49 @@ For detailed optimization strategies, see [INFRASTRUCTURE.md - Performance Optim
 - Embedding failure → Retry 3 times, then notify user
 - LLM timeout → Show partial response (if available) + retry button
 - API rate limit → Queue with exponential backoff, show estimated wait time
+
+### 6. Database Development Workflow
+
+**Always validate database changes locally before deploying** - Use the supabase-local-validator subagent
+
+When working with database changes, you MUST use the `supabase-local-validator` subagent to:
+
+- Verify SQL migrations are applied correctly in local Supabase environment
+- Test Row Level Security (RLS) policies with different user contexts
+- Validate schema changes don't break existing queries
+- Ensure foreign key constraints and indexes are properly set up
+- Test database triggers and functions locally
+
+**When to use the supabase-local-validator agent:**
+
+- **After creating new SQL migrations** - Proactively validate migrations work in local Supabase
+- **After modifying RLS policies** - Test policies with different user roles and edge cases
+- **During initial project setup** - Set up and verify local Supabase development environment
+- **Before deploying schema changes** - Catch issues early in local environment
+
+**Example workflow:**
+
+```bash
+# 1. Create migration file
+npx supabase migration new add_collections_table
+
+# 2. Write SQL migration
+# ... edit migration file ...
+
+# 3. Claude Code automatically launches supabase-local-validator agent
+# to verify the migration works correctly
+
+# 4. Fix any issues found by the agent
+# 5. Commit when validation passes
+```
+
+The agent will:
+
+- Start local Supabase (if not running)
+- Apply migrations to local database
+- Run test queries to verify schema
+- Test RLS policies with mock user contexts
+- Report any errors or warnings
 
 ---
 

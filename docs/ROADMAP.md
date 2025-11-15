@@ -16,13 +16,14 @@
 - [x] Set up ESLint, Prettier, and Husky pre-commit hooks
 - [x] **E2E Test**: Verify dev server starts successfully
 
-### 1.2 Database Schema & Prisma Setup
+### 1.2 Database Schema & Supabase CLI Setup
 
-- [ ] Define Prisma schema with all models (User, Collection, Paper, CollectionPaper, Conversation, Message, Citation)
-- [ ] Configure Supabase PostgreSQL connection
-- [ ] Create initial migration
-- [ ] Generate Prisma Client
-- [ ] **E2E Test**: Connect to database and query users table
+- [ ] Initialize Supabase CLI in project (`npx supabase init`)
+- [ ] Link to remote Supabase project (`npx supabase link`)
+- [ ] Create SQL migration files with schema (Users, Collections, Papers, CollectionPapers, Conversations, Messages, Citations)
+- [ ] Apply migrations to remote database (`npx supabase db push`)
+- [ ] Generate TypeScript types from schema (`npx supabase gen types typescript`)
+- [ ] **E2E Test**: Connect to database and query users table with Supabase client
 
 ### 1.3 Supabase Authentication
 
@@ -136,11 +137,12 @@
 
 ### 2.5 Conversation Schema
 
-- [ ] Add Conversation and Message models to Prisma
-- [ ] Add Citation model for tracking cited papers
-- [ ] Create migration
+- [ ] Create SQL migration for Conversation and Message tables
+- [ ] Create SQL migration for Citation table for tracking cited papers
+- [ ] Apply migration to database (`npx supabase db push`)
 - [ ] Add indexes for performance (collectionId, userId, createdAt)
-- [ ] **E2E Test**: Create conversation record manually and query
+- [ ] Regenerate TypeScript types (`npx supabase gen types typescript`)
+- [ ] **E2E Test**: Create conversation record manually and query with Supabase client
 
 ### 2.6 Chat API - Create Conversation
 

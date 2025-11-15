@@ -11,7 +11,7 @@
 - **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API 상세
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리, 상태 관리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증, 데이터베이스
-- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Prisma, Supabase Storage
+- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase CLI, SQL migrations, Supabase Storage
 - **[인프라 및 운영](./INFRASTRUCTURE.md)** - 배포, 백그라운드 작업, 보안, 성능, 비용
 
 ---
@@ -68,7 +68,7 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 │                        Supabase                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
 │  │ PostgreSQL   │  │ Auth         │  │ Storage      │      │
-│  │ (Prisma ORM) │  │              │  │              │      │
+│  │ (Client SDK) │  │              │  │              │      │
 │  │              │  │ - Google     │  │ - PDF 저장   │      │
 │  │ - Users      │  │ - Email/PW   │  │ - CDN 통합   │      │
 │  │ - Collections│  │ - Session    │  │ - RLS 보안   │      │
@@ -140,15 +140,15 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 
 #### 자동 논문 수집
 
-| 기능 요소       | 기술 스택                    | 상세 역할                                  |
-| --------------- | ---------------------------- | ------------------------------------------ |
-| 키워드 검색     | Semantic Scholar API         | Bulk Search 엔드포인트로 논문 검색         |
-| 필터링          | Semantic Scholar API         | 연도, 인용 수, Open Access 필터 적용       |
-| 메타데이터 저장 | Supabase PostgreSQL + Prisma | 논문 정보, 컬렉션-논문 관계 저장           |
-| PDF 다운로드    | BullMQ + Axios               | 백그라운드에서 비동기 다운로드             |
-| PDF 저장        | Supabase Storage             | 원본 PDF 영구 저장 (재처리 가능), CDN 통합 |
-| 벡터화          | Gemini File Search           | PDF 업로드 → 자동 청킹/임베딩              |
-| 진행 상태 UI    | WebSocket / Polling          | 실시간 진행률 표시                         |
+| 기능 요소       | 기술 스택                          | 상세 역할                                  |
+| --------------- | ---------------------------------- | ------------------------------------------ |
+| 키워드 검색     | Semantic Scholar API               | Bulk Search 엔드포인트로 논문 검색         |
+| 필터링          | Semantic Scholar API               | 연도, 인용 수, Open Access 필터 적용       |
+| 메타데이터 저장 | Supabase PostgreSQL + Supabase SDK | 논문 정보, 컬렉션-논문 관계 저장           |
+| PDF 다운로드    | BullMQ + Axios                     | 백그라운드에서 비동기 다운로드             |
+| PDF 저장        | Supabase Storage                   | 원본 PDF 영구 저장 (재처리 가능), CDN 통합 |
+| 벡터화          | Gemini File Search                 | PDF 업로드 → 자동 청킹/임베딩              |
+| 진행 상태 UI    | WebSocket / Polling                | 실시간 진행률 표시                         |
 
 **구현 상세:**
 
@@ -167,30 +167,51 @@ async function createCollection(req: Request) {
     openAccessOnly: filters.openAccessOnly,
   });
 
-  // 3. DB 저장
-  const collection = await prisma.collection.create({
-    data: {
-      userId: req.user.id,
+  // 3. DB 저장 (컬렉션 생성)
+  const supabase = createServerSupabaseClient();
+  const { data: collection, error: collectionError } = await supabase
+    .from('collections')
+    .insert({
+      user_id: req.user.id,
       name,
-      searchQuery: keywords,
+      search_query: keywords,
       filters,
-      papers: {
-        create: papers.map(p => ({
-          paperId: p.paperId,
-          title: p.title,
-          // ...
-          vectorStatus: 'pending',
-        })),
-      },
-    },
-  });
+    })
+    .select()
+    .single();
+
+  if (collectionError) throw collectionError;
+
+  // 논문 메타데이터 저장
+  const { error: papersError } = await supabase.from('papers').upsert(
+    papers.map(p => ({
+      paper_id: p.paperId,
+      title: p.title,
+      authors: p.authors,
+      year: p.year,
+      abstract: p.abstract,
+      citation_count: p.citationCount,
+      open_access_pdf_url: p.openAccessPdf?.url,
+      vector_status: 'pending',
+    }))
+  );
+
+  if (papersError) throw papersError;
+
+  // 컬렉션-논문 관계 생성
+  await supabase.from('collection_papers').insert(
+    papers.map(p => ({
+      collection_id: collection.id,
+      paper_id: p.paperId,
+    }))
+  );
 
   // 4. Gemini File Search Store 생성
   const store = await geminiService.createFileSearchStore(collection.id);
-  await prisma.collection.update({
-    where: { id: collection.id },
-    data: { fileSearchStoreId: store.id },
-  });
+  await supabase
+    .from('collections')
+    .update({ file_search_store_id: store.id })
+    .eq('id', collection.id);
 
   // 5. PDF 다운로드 작업 큐잉
   const openAccessPapers = papers.filter(p => p.openAccessPdf?.url);
@@ -236,11 +257,21 @@ async function uploadPdf(req: Request) {
     throw new Error('Max 100MB');
   }
 
-  // 2. Paper 조회
-  const paper = await prisma.paper.findUnique({
-    where: { paperId },
-    include: { collections: true },
-  });
+  const supabase = createServerSupabaseClient();
+
+  // 2. Paper 조회 및 컬렉션 정보
+  const { data: paper } = await supabase
+    .from('papers')
+    .select(
+      `
+      *,
+      collection_papers!inner(
+        collection:collections(*)
+      )
+    `
+    )
+    .eq('paper_id', paperId)
+    .single();
 
   // 3. Supabase Storage 저장
   const { data, error } = await supabase.storage
@@ -253,27 +284,27 @@ async function uploadPdf(req: Request) {
   if (error) throw error;
 
   // 4. Gemini File Search 업로드 (모든 컬렉션의 Store에)
-  for (const collection of paper.collections) {
+  for (const cp of paper.collection_papers) {
     await geminiService.uploadToStore(
-      collection.fileSearchStoreId,
+      cp.collection.file_search_store_id,
       file.buffer,
       {
         paper_id: paperId,
         title: paper.title,
-        authors: paper.authors.map(a => a.name).join(', '),
+        authors: JSON.stringify(paper.authors),
       }
     );
   }
 
   // 5. 상태 업데이트
-  await prisma.paper.update({
-    where: { paperId },
-    data: {
-      pdfSource: 'manual',
-      vectorStatus: 'completed',
-      uploadedBy: req.user.id,
-    },
-  });
+  await supabase
+    .from('papers')
+    .update({
+      pdf_source: 'manual',
+      vector_status: 'completed',
+      uploaded_by: req.user.id,
+    })
+    .eq('paper_id', paperId);
 
   return { success: true };
 }
@@ -589,7 +620,7 @@ async function copyCollection(req: Request) {
 | ------------------- | ----------------------------------------------------------- | ---------------------------- |
 | **Frontend**        | Next.js 14, React 18, TypeScript, Tailwind, shadcn/ui       | UI, SSR, 타입 안정성         |
 | **Backend**         | Next.js API Routes, Supabase Auth, Zod                      | API, 인증, 검증              |
-| **Database**        | Supabase PostgreSQL, Prisma                                 | 관계형 데이터 저장, RLS 보안 |
+| **Database**        | Supabase PostgreSQL, Supabase Client, SQL migrations        | 관계형 데이터 저장, RLS 보안 |
 | **Vector DB**       | Gemini File Search                                          | PDF 벡터화, RAG              |
 | **File Storage**    | Supabase Storage                                            | PDF 원본 저장, CDN 통합      |
 | **Background Jobs** | BullMQ, Redis                                               | 비동기 작업 처리             |
@@ -602,7 +633,7 @@ async function copyCollection(req: Request) {
 2. **Gemini File Search 활용**: RAG 자체 구축 대비 개발 시간 70% 단축
 3. **BullMQ로 비동기 처리**: PDF 다운로드/인덱싱으로 사용자 대기 시간 제거
 4. **Row Level Security**: 데이터베이스 수준 보안으로 안전한 멀티테넌트 구조
-5. **Prisma ORM**: 타입 안정성으로 런타임 에러 최소화
+5. **Supabase Client SDK**: TypeScript 타입 자동 생성으로 타입 안정성 확보
 6. **React Query**: API 호출 최적화로 UX 향상
 7. **점진적 출시**: Phase별 완료 기준 설정으로 MVP 10주 내 출시
 
@@ -618,7 +649,7 @@ async function copyCollection(req: Request) {
 1. GitHub 리포지토리 생성
 2. Next.js + TypeScript 프로젝트 초기화
 3. **Supabase 프로젝트 생성** (DB, Auth, Storage 통합)
-4. Supabase Database URL을 Prisma에 연결
+4. Supabase CLI 설치 및 프로젝트 연결
 5. Semantic Scholar API Key 발급
 6. Gemini API Key 발급
 7. Phase 1 개발 시작

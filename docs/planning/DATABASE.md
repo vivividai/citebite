@@ -135,153 +135,246 @@ CREATE INDEX idx_papers_citation_count ON papers(citation_count DESC);
 
 ---
 
-## 2. Prisma ORM
+## 2. Supabase Client SDK & Database Workflow
 
-**역할**: TypeScript 친화적 DB 접근 레이어
+**역할**: TypeScript 친화적 DB 접근 레이어 및 마이그레이션 관리
 
 **주요 기능:**
 
-- **타입 안정성**: DB 스키마 → TypeScript 타입 자동 생성
-- **마이그레이션**: 스키마 변경 관리
-- **쿼리 빌더**: 직관적 API
-- **관계 로딩**: Eager/Lazy Loading
+- **타입 안정성**: DB 스키마 → TypeScript 타입 자동 생성 (`supabase gen types`)
+- **SQL 마이그레이션**: Supabase CLI를 통한 버전 관리
+- **PostgREST API**: 자동 생성되는 RESTful API
+- **실시간 구독**: Realtime 기능 (선택적 사용)
 
 ---
 
-### 2.1 Prisma Schema
+Supabase CLI를 사용하여 SQL 파일로 직접 스키마를 작성합니다:
 
-```prisma
-// prisma/schema.prisma
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+```bash
+# 새 마이그레이션 생성
+npx supabase migration new init_schema
+```
 
-generator client {
-  provider = "prisma-client-js"
-}
+```sql
+-- supabase/migrations/20250115000000_init_schema.sql
 
-model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  name          String?
-  collections   Collection[]
-  conversations Conversation[]
-  createdAt     DateTime       @default(now())
-}
+-- Users 테이블 (Supabase Auth와 연동)
+CREATE TABLE users (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  name VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW()
+);
 
-model Collection {
-  id                  String              @id @default(uuid())
-  userId              String
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name                String
-  searchQuery         String
-  filters             Json?
-  isPublic            Boolean             @default(false)
-  fileSearchStoreId   String?
-  insightSummary      Json?
-  papers              CollectionPaper[]
-  conversations       Conversation[]
-  createdAt           DateTime            @default(now())
-  lastUpdatedAt       DateTime            @default(now())
-  copyCount           Int                 @default(0)
-}
+-- Collections 테이블
+CREATE TABLE collections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  search_query TEXT NOT NULL,
+  filters JSONB,
+  is_public BOOLEAN DEFAULT FALSE,
+  file_search_store_id VARCHAR(255),
+  insight_summary JSONB,
+  created_at TIMESTAMP DEFAULT NOW(),
+  last_updated_at TIMESTAMP DEFAULT NOW(),
+  copy_count INT DEFAULT 0
+);
 
-model Paper {
-  paperId           String            @id
-  title             String
-  authors           Json
-  year              Int?
-  abstract          String?
-  citationCount     Int?
-  venue             String?
-  openAccessPdfUrl  String?
-  pdfSource         String?           // 'auto' | 'manual'
-  vectorStatus      String?           // 'pending' | 'completed'
-  uploadedBy        String?
-  collections       CollectionPaper[]
-  createdAt         DateTime          @default(now())
-}
+-- Papers 테이블
+CREATE TABLE papers (
+  paper_id VARCHAR(255) PRIMARY KEY,
+  title TEXT NOT NULL,
+  authors JSONB,
+  year INT,
+  abstract TEXT,
+  citation_count INT,
+  venue VARCHAR(255),
+  open_access_pdf_url TEXT,
+  pdf_source VARCHAR(20),
+  vector_status VARCHAR(20),
+  uploaded_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
 
-model CollectionPaper {
-  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
-  collectionId String
-  paper        Paper      @relation(fields: [paperId], references: [paperId], onDelete: Cascade)
-  paperId      String
+-- Collections <-> Papers (Many-to-Many)
+CREATE TABLE collection_papers (
+  collection_id UUID REFERENCES collections(id) ON DELETE CASCADE,
+  paper_id VARCHAR(255) REFERENCES papers(paper_id) ON DELETE CASCADE,
+  PRIMARY KEY (collection_id, paper_id)
+);
 
-  @@id([collectionId, paperId])
-}
+-- Conversations 테이블
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID REFERENCES collections(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+  title VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW(),
+  last_message_at TIMESTAMP DEFAULT NOW()
+);
 
-model Conversation {
-  id             String    @id @default(uuid())
-  collectionId   String
-  collection     Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
-  userId         String
-  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title          String?
-  messages       Message[]
-  createdAt      DateTime   @default(now())
-  lastMessageAt  DateTime   @default(now())
-}
+-- Messages 테이블
+CREATE TABLE messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE NOT NULL,
+  role VARCHAR(20) NOT NULL,
+  content TEXT NOT NULL,
+  cited_papers JSONB,
+  timestamp TIMESTAMP DEFAULT NOW()
+);
 
-model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String       // 'user' | 'assistant'
-  content        String       @db.Text
-  citedPapers    Json?
-  timestamp      DateTime     @default(now())
-}
+-- Indexes
+CREATE INDEX idx_collections_user_id ON collections(user_id);
+CREATE INDEX idx_collections_is_public ON collections(is_public);
+CREATE INDEX idx_conversations_collection_id ON conversations(collection_id);
+CREATE INDEX idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX idx_papers_citation_count ON papers(citation_count DESC);
+```
+
+**마이그레이션 적용:**
+
+```bash
+# 로컬 DB에 적용
+npx supabase db reset
+
+# 원격 DB에 적용
+npx supabase db push
 ```
 
 ---
 
-### 2.2 사용 예시
+### 2.2 TypeScript 타입 생성
+
+Supabase CLI로 데이터베이스 스키마로부터 TypeScript 타입을 자동 생성:
+
+```bash
+# 타입 생성
+npx supabase gen types typescript --local > src/types/database.types.ts
+
+# 또는 원격 DB에서 생성
+npx supabase gen types typescript --project-id <project-id> > src/types/database.types.ts
+```
+
+생성된 타입 사용:
 
 ```typescript
-import { PrismaClient } from '@prisma/client';
+// src/types/database.types.ts (자동 생성)
+export type Database = {
+  public: {
+    Tables: {
+      collections: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          search_query: string;
+          filters: Json | null;
+          is_public: boolean;
+          // ...
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          // ...
+        };
+        Update: {
+          name?: string;
+          // ...
+        };
+      };
+      // ... 다른 테이블들
+    };
+  };
+};
+```
 
-const prisma = new PrismaClient();
+### 2.3 Supabase Client 사용 예시
 
-// 컬렉션 생성 (트랜잭션)
-async function createCollection(userId: string, data: CreateCollectionInput) {
-  return await prisma.$transaction(async tx => {
-    const collection = await tx.collection.create({
-      data: {
-        userId,
-        name: data.name,
-        searchQuery: data.keywords,
-        filters: data.filters,
-      },
-    });
+```typescript
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { Database } from '@/types/database.types';
 
-    // 논문 추가
-    await tx.collectionPaper.createMany({
-      data: papers.map(p => ({
-        collectionId: collection.id,
-        paperId: p.paperId,
-      })),
-    });
+// 컬렉션 생성
+async function createCollection(
+  userId: string,
+  data: { name: string; keywords: string; filters: any }
+) {
+  const supabase = createServerSupabaseClient();
 
-    return collection;
-  });
+  // 1. 컬렉션 생성
+  const { data: collection, error: collectionError } = await supabase
+    .from('collections')
+    .insert({
+      user_id: userId,
+      name: data.name,
+      search_query: data.keywords,
+      filters: data.filters,
+    })
+    .select()
+    .single();
+
+  if (collectionError) throw collectionError;
+
+  // 2. 논문 관계 추가
+  const { error: papersError } = await supabase
+    .from('collection_papers')
+    .insert(
+      papers.map(p => ({
+        collection_id: collection.id,
+        paper_id: p.paperId,
+      }))
+    );
+
+  if (papersError) throw papersError;
+
+  return collection;
 }
 
 // 복잡한 조인 쿼리
-const collections = await prisma.collection.findMany({
-  where: { userId },
-  include: {
-    _count: {
-      select: { papers: true, conversations: true },
-    },
-    papers: {
-      include: { paper: true },
-      take: 5,
-      orderBy: { paper: { citationCount: 'desc' } },
-    },
-  },
-});
+async function getCollectionsWithPapers(userId: string) {
+  const supabase = createServerSupabaseClient();
+
+  const { data: collections, error } = await supabase
+    .from('collections')
+    .select(
+      `
+      *,
+      collection_papers(count),
+      conversations(count),
+      collection_papers(
+        paper:papers(*)
+      )
+    `
+    )
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  return collections;
+}
+
+// 특정 컬렉션의 Top 논문
+async function getTopPapers(collectionId: string, limit: number = 5) {
+  const supabase = createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('collection_papers')
+    .select(
+      `
+      paper:papers(*)
+    `
+    )
+    .eq('collection_id', collectionId)
+    .order('papers.citation_count', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+
+  return data.map(item => item.paper);
+}
 ```
 
 ---
@@ -448,16 +541,19 @@ USING (
 **컬렉션별 Store 매핑:**
 
 ```typescript
-// Collection 테이블의 fileSearchStoreId 필드에 저장
-const collection = await prisma.collection.findUnique({
-  where: { id: collectionId },
-});
+// Collection 테이블의 file_search_store_id 필드에 저장
+const supabase = createServerSupabaseClient();
+const { data: collection } = await supabase
+  .from('collections')
+  .select('file_search_store_id')
+  .eq('id', collectionId)
+  .single();
 
-const storeId = collection.fileSearchStoreId;
+const storeId = collection.file_search_store_id;
 // 이 Store ID로 Gemini에 쿼리
 ```
 
 **공개 컬렉션 복사 시:**
 
-- 동일한 `fileSearchStoreId` 참조 → 벡터 데이터 재사용
+- 동일한 `file_search_store_id` 참조 → 벡터 데이터 재사용
 - 비용 절감 + 인덱싱 시간 단축

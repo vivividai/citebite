@@ -1,0 +1,226 @@
+/**
+ * BullMQ Queue Definitions
+ * Manages background job queues for PDF processing and insight generation
+ */
+
+import { Queue } from 'bullmq';
+import { getRedisClient } from '@/lib/redis/client';
+
+// Job data type definitions
+export interface PdfDownloadJobData {
+  collectionId: string;
+  paperId: string;
+  pdfUrl: string;
+}
+
+export interface PdfIndexJobData {
+  collectionId: string;
+  paperId: string;
+  storageKey: string; // Key in Supabase Storage
+}
+
+export interface InsightGenerationJobData {
+  collectionId: string;
+}
+
+// Queue instances (singleton pattern)
+let pdfDownloadQueue: Queue<PdfDownloadJobData> | null = null;
+let pdfIndexQueue: Queue<PdfIndexJobData> | null = null;
+let insightQueue: Queue<InsightGenerationJobData> | null = null;
+
+/**
+ * Get or create PDF Download Queue
+ */
+export function getPdfDownloadQueue(): Queue<PdfDownloadJobData> | null {
+  if (!process.env.REDIS_URL) {
+    console.warn('REDIS_URL not configured. Background jobs are disabled.');
+    return null;
+  }
+
+  if (pdfDownloadQueue) {
+    return pdfDownloadQueue;
+  }
+
+  const connection = getRedisClient();
+  if (!connection) {
+    return null;
+  }
+
+  pdfDownloadQueue = new Queue<PdfDownloadJobData>('pdf-download', {
+    connection,
+    defaultJobOptions: {
+      attempts: 3, // Retry up to 3 times
+      backoff: {
+        type: 'exponential',
+        delay: 2000, // Start with 2 second delay
+      },
+      removeOnComplete: {
+        age: 24 * 3600, // Keep completed jobs for 24 hours
+        count: 1000, // Keep max 1000 completed jobs
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+      },
+    },
+  });
+
+  return pdfDownloadQueue;
+}
+
+/**
+ * Get or create PDF Indexing Queue
+ */
+export function getPdfIndexQueue(): Queue<PdfIndexJobData> | null {
+  if (!process.env.REDIS_URL) {
+    console.warn('REDIS_URL not configured. Background jobs are disabled.');
+    return null;
+  }
+
+  if (pdfIndexQueue) {
+    return pdfIndexQueue;
+  }
+
+  const connection = getRedisClient();
+  if (!connection) {
+    return null;
+  }
+
+  pdfIndexQueue = new Queue<PdfIndexJobData>('pdf-indexing', {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000, // Start with 5 second delay (API rate limits)
+      },
+      removeOnComplete: {
+        age: 24 * 3600,
+        count: 1000,
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600,
+      },
+    },
+  });
+
+  return pdfIndexQueue;
+}
+
+/**
+ * Get or create Insight Generation Queue
+ */
+export function getInsightQueue(): Queue<InsightGenerationJobData> | null {
+  if (!process.env.REDIS_URL) {
+    console.warn('REDIS_URL not configured. Background jobs are disabled.');
+    return null;
+  }
+
+  if (insightQueue) {
+    return insightQueue;
+  }
+
+  const connection = getRedisClient();
+  if (!connection) {
+    return null;
+  }
+
+  insightQueue = new Queue<InsightGenerationJobData>('insight-generation', {
+    connection,
+    defaultJobOptions: {
+      attempts: 2, // Fewer retries for expensive operations
+      backoff: {
+        type: 'exponential',
+        delay: 10000, // Start with 10 second delay
+      },
+      removeOnComplete: {
+        age: 24 * 3600,
+        count: 100,
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600,
+      },
+    },
+  });
+
+  return insightQueue;
+}
+
+/**
+ * Close all queue connections (use on app shutdown)
+ */
+export async function closeQueues(): Promise<void> {
+  const queues = [pdfDownloadQueue, pdfIndexQueue, insightQueue];
+
+  for (const queue of queues) {
+    if (queue) {
+      await queue.close();
+    }
+  }
+
+  pdfDownloadQueue = null;
+  pdfIndexQueue = null;
+  insightQueue = null;
+}
+
+/**
+ * Helper function to add a PDF download job
+ */
+export async function queuePdfDownload(
+  data: PdfDownloadJobData
+): Promise<string | null> {
+  const queue = getPdfDownloadQueue();
+  if (!queue) {
+    console.error('PDF download queue not available');
+    return null;
+  }
+
+  try {
+    const job = await queue.add('download-pdf', data);
+    return job.id ?? null;
+  } catch (error) {
+    console.error('Failed to queue PDF download job:', error);
+    return null;
+  }
+}
+
+/**
+ * Helper function to add a PDF indexing job
+ */
+export async function queuePdfIndexing(
+  data: PdfIndexJobData
+): Promise<string | null> {
+  const queue = getPdfIndexQueue();
+  if (!queue) {
+    console.error('PDF indexing queue not available');
+    return null;
+  }
+
+  try {
+    const job = await queue.add('index-pdf', data);
+    return job.id ?? null;
+  } catch (error) {
+    console.error('Failed to queue PDF indexing job:', error);
+    return null;
+  }
+}
+
+/**
+ * Helper function to add an insight generation job
+ */
+export async function queueInsightGeneration(
+  data: InsightGenerationJobData
+): Promise<string | null> {
+  const queue = getInsightQueue();
+  if (!queue) {
+    console.error('Insight generation queue not available');
+    return null;
+  }
+
+  try {
+    const job = await queue.add('generate-insights', data);
+    return job.id ?? null;
+  } catch (error) {
+    console.error('Failed to queue insight generation job:', error);
+    return null;
+  }
+}

@@ -53,12 +53,12 @@
 
 ### 1.6 BullMQ & Redis Setup _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
 
-- [ ] Connect to Redis (Upstash or Railway)
-- [ ] Define three queues: `pdf-download`, `pdf-indexing`, `insight-generation`
-- [ ] Create queue client utilities (`lib/jobs/queues.ts`)
-- [ ] Create worker skeleton files (no logic yet)
-- [ ] Add job status polling API route
-- [ ] **E2E Test**: Queue a test job and verify it appears in Redis
+- [x] Connect to Redis (Upstash or Railway) - configuration ready, actual Redis instance needed
+- [x] Define three queues: `pdf-download`, `pdf-indexing`, `insight-generation`
+- [x] Create queue client utilities (`lib/jobs/queues.ts`)
+- [x] Create worker skeleton files (no logic yet)
+- [x] Add job status polling API route
+- [ ] **E2E Test**: Queue a test job and verify it appears in Redis (requires actual Redis instance)
 
 ### 1.7 Gemini File Search Integration _(→ [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 

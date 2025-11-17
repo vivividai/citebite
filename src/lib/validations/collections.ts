@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 /**
+ * Helper to convert NaN to undefined for optional number fields
+ */
+const optionalNumber = (schema: z.ZodNumber) =>
+  z.preprocess(val => (Number.isNaN(val) ? undefined : val), schema.optional());
+
+/**
  * Validation schema for collection creation
  */
 export const createCollectionSchema = z.object({
@@ -12,21 +18,18 @@ export const createCollectionSchema = z.object({
   keywords: z.string().min(1, 'Search keywords are required').trim(),
   filters: z
     .object({
-      yearFrom: z
-        .number()
-        .int()
-        .min(1900, 'Year must be 1900 or later')
-        .optional(),
-      yearTo: z
-        .number()
-        .int()
-        .max(new Date().getFullYear(), 'Year cannot be in the future')
-        .optional(),
-      minCitations: z
-        .number()
-        .int()
-        .min(0, 'Minimum citations must be non-negative')
-        .optional(),
+      yearFrom: optionalNumber(
+        z.number().int().min(1900, 'Year must be 1900 or later')
+      ),
+      yearTo: optionalNumber(
+        z
+          .number()
+          .int()
+          .max(new Date().getFullYear(), 'Year cannot be in the future')
+      ),
+      minCitations: optionalNumber(
+        z.number().int().min(0, 'Minimum citations must be non-negative')
+      ),
       openAccessOnly: z.boolean().optional(),
     })
     .optional()
@@ -48,3 +51,8 @@ export const createCollectionSchema = z.object({
  * TypeScript type inferred from the schema
  */
 export type CreateCollectionInput = z.infer<typeof createCollectionSchema>;
+
+/**
+ * Alias for backwards compatibility
+ */
+export type CreateCollectionSchema = CreateCollectionInput;

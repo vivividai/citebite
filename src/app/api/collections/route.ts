@@ -77,18 +77,15 @@ export async function POST(request: NextRequest) {
     const result = createCollectionSchema.safeParse(body);
 
     if (!result.success) {
-      const errors = Array.isArray(result.error)
-        ? result.error
-        : result.error?.issues || [];
+      console.error('Validation failed:', result.error);
+      const errors = result.error.issues || [];
 
       return NextResponse.json(
         {
           error: 'Invalid input',
           details: errors.map(e => ({
-            field: Array.isArray(e.path)
-              ? e.path.join('.')
-              : String(e.path || ''),
-            message: String(e.message || 'Validation error'),
+            field: e.path.join('.'),
+            message: e.message,
           })),
         },
         { status: 400 }

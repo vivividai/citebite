@@ -45,9 +45,10 @@ export default async function Home() {
               </Link>
             </Button>
           )}
-          <Button asChild variant="outline" size="lg">
+          {/* TODO: Phase 7 - Enable when public collections feature is ready */}
+          {/* <Button asChild variant="outline" size="lg">
             <Link href="/discover">Explore Public Collections</Link>
-          </Button>
+          </Button> */}
         </div>
       </section>
 

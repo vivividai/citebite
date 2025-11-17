@@ -23,6 +23,17 @@ interface CollectionsResponse {
   };
 }
 
+// Custom error class to track status codes
+class ApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 /**
  * Hook to fetch user's collections
  */
@@ -34,7 +45,10 @@ export function useCollections() {
 
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || 'Failed to fetch collections');
+        throw new ApiError(
+          error.message || 'Failed to fetch collections',
+          res.status
+        );
       }
 
       const data: CollectionsResponse = await res.json();

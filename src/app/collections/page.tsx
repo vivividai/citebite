@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useCollections } from '@/hooks/useCollections';
 import { CollectionCard } from '@/components/collections/CollectionCard';
 import { CreateCollectionDialog } from '@/components/collections/CreateCollectionDialog';
-import { Loader2, BookOpen } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, BookOpen, LogIn } from 'lucide-react';
 
 export default function CollectionsPage() {
   const { data: collections, isLoading, error } = useCollections();
@@ -19,6 +21,40 @@ export default function CollectionsPage() {
   }
 
   if (error) {
+    // Check if it's an authentication error (401)
+    const isAuthError =
+      error instanceof Error &&
+      'statusCode' in error &&
+      (error as Error & { statusCode: number }).statusCode === 401;
+
+    if (isAuthError) {
+      return (
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6">
+            <div className="rounded-full bg-primary/10 p-6">
+              <LogIn className="h-12 w-12 text-primary" />
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-semibold">
+                Sign in to view your collections
+              </h2>
+              <p className="text-muted-foreground max-w-md">
+                Please sign in to access your research paper collections and
+                start chatting with AI.
+              </p>
+            </div>
+            <Link href="/login">
+              <Button size="lg">
+                <LogIn className="mr-2 h-5 w-5" />
+                Sign In
+              </Button>
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
+    // General error state
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">

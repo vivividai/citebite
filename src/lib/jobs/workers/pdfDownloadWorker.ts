@@ -4,44 +4,162 @@
  */
 
 import { Worker, Job } from 'bullmq';
+import axios from 'axios';
 import { getRedisClient } from '@/lib/redis/client';
-import { PdfDownloadJobData } from '../queues';
+import { PdfDownloadJobData, queuePdfIndexing } from '../queues';
+import { uploadPdf, getStoragePath } from '@/lib/storage/supabaseStorage';
+import { createAdminSupabaseClient } from '@/lib/supabase/server';
 
 // Worker instance
 let pdfDownloadWorker: Worker<PdfDownloadJobData> | null = null;
+
+// Constants
+const PDF_DOWNLOAD_TIMEOUT = 30000; // 30 seconds
+const MAX_PDF_SIZE = 100 * 1024 * 1024; // 100MB
+
+/**
+ * Download PDF from URL
+ */
+async function downloadPdfFromUrl(url: string): Promise<Buffer> {
+  const response = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: PDF_DOWNLOAD_TIMEOUT,
+    maxContentLength: MAX_PDF_SIZE,
+    headers: {
+      'User-Agent': 'CiteBite/1.0 (Research Paper Collector)',
+    },
+  });
+
+  // Validate content type
+  const contentType = response.headers['content-type'];
+  if (contentType && !contentType.includes('application/pdf')) {
+    throw new Error(
+      `Invalid content type: ${contentType}. Expected application/pdf`
+    );
+  }
+
+  // Convert to Buffer
+  return Buffer.from(response.data);
+}
+
+/**
+ * Update paper status in database
+ */
+async function updatePaperStatus(
+  paperId: string,
+  status: 'processing' | 'failed'
+): Promise<void> {
+  const supabase = createAdminSupabaseClient();
+
+  const { error } = await supabase
+    .from('papers')
+    .update({ vector_status: status })
+    .eq('paper_id', paperId);
+
+  if (error) {
+    console.error(
+      `Failed to update paper ${paperId} status to ${status}:`,
+      error
+    );
+    throw new Error(`Database update failed: ${error.message}`);
+  }
+}
 
 /**
  * Process PDF download job
  */
 async function processPdfDownload(job: Job<PdfDownloadJobData>) {
-  const { paperId } = job.data;
+  const { collectionId, paperId, pdfUrl } = job.data;
 
   console.log(
     `[PDF Download Worker] Processing job ${job.id} for paper ${paperId}`
   );
+  console.log(`[PDF Download Worker] Downloading from: ${pdfUrl}`);
 
   try {
-    // TODO: Implement in Phase 2
-    // 1. Download PDF from job.data.pdfUrl using axios
-    // 2. Upload to Supabase Storage
-    // 3. Update Paper.pdfUrl and Paper.storageKey in database
-    // 4. Queue PDF indexing job
+    // Step 1: Download PDF from Semantic Scholar
+    const pdfBuffer = await downloadPdfFromUrl(pdfUrl);
+    console.log(
+      `[PDF Download Worker] Downloaded PDF (${(pdfBuffer.length / 1024).toFixed(2)} KB)`
+    );
 
-    // Placeholder for now
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Step 2: Upload to Supabase Storage
+    const storagePath = await uploadPdf(collectionId, paperId, pdfBuffer);
+    console.log(`[PDF Download Worker] Uploaded to storage: ${storagePath}`);
+
+    // Step 3: Update database status to 'processing' (ready for indexing)
+    await updatePaperStatus(paperId, 'processing');
+    console.log(`[PDF Download Worker] Updated paper status to 'processing'`);
+
+    // Step 4: Queue PDF indexing job
+    const storageKey = getStoragePath(collectionId, paperId);
+    const indexJobId = await queuePdfIndexing({
+      collectionId,
+      paperId,
+      storageKey,
+    });
+
+    if (indexJobId) {
+      console.log(`[PDF Download Worker] Queued indexing job: ${indexJobId}`);
+    } else {
+      console.warn(
+        `[PDF Download Worker] Failed to queue indexing job for paper ${paperId}`
+      );
+    }
 
     console.log(
       `[PDF Download Worker] Successfully processed job ${job.id} for paper ${paperId}`
     );
 
-    return { success: true, paperId };
+    return { success: true, paperId, storagePath };
   } catch (error) {
+    // Determine if error is retryable
+    const isRetryable = isRetryableError(error);
+
     console.error(
-      `[PDF Download Worker] Failed to process job ${job.id}:`,
+      `[PDF Download Worker] Failed to process job ${job.id} (retryable: ${isRetryable}):`,
       error
     );
+
+    if (!isRetryable) {
+      // Mark as failed immediately for non-retryable errors
+      try {
+        await updatePaperStatus(paperId, 'failed');
+      } catch (dbError) {
+        console.error(
+          `[PDF Download Worker] Failed to update status to failed:`,
+          dbError
+        );
+      }
+    }
+
     throw error; // BullMQ will handle retries
   }
+}
+
+/**
+ * Determine if an error is retryable
+ */
+function isRetryableError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+
+    // Don't retry on 404 (not found) or 403 (forbidden)
+    if (status === 404 || status === 403) {
+      return false;
+    }
+
+    // Don't retry on 400 (bad request)
+    if (status === 400) {
+      return false;
+    }
+
+    // Retry on network errors, timeouts, and 5xx errors
+    return true;
+  }
+
+  // Retry on unknown errors
+  return true;
 }
 
 /**
@@ -80,25 +198,47 @@ export function startPdfDownloadWorker(): Worker<PdfDownloadJobData> | null {
 
   // Event handlers
   pdfDownloadWorker.on('completed', async job => {
-    console.log(`[PDF Download Worker] Job ${job.id} completed`);
-
-    // TODO: Update database status to 'processing' (ready for indexing)
-    // const supabase = createServerSupabaseClient();
-    // await supabase
-    //   .from('papers')
-    //   .update({ vector_status: 'processing' })
-    //   .eq('paper_id', job.data.paperId);
+    console.log(
+      `[PDF Download Worker] Job ${job.id} completed for paper ${job.data.paperId}`
+    );
+    // Status is already updated to 'processing' in the processPdfDownload function
   });
 
   pdfDownloadWorker.on('failed', async (job, err) => {
-    console.error(`[PDF Download Worker] Job ${job?.id} failed:`, err);
+    if (!job) {
+      console.error('[PDF Download Worker] Job failed with no job data:', err);
+      return;
+    }
 
-    // TODO: Update database status to 'failed'
-    // const supabase = createServerSupabaseClient();
-    // await supabase
-    //   .from('papers')
-    //   .update({ vector_status: 'failed' })
-    //   .eq('paper_id', job!.data.paperId);
+    console.error(
+      `[PDF Download Worker] Job ${job.id} failed after all retries for paper ${job.data.paperId}:`,
+      err
+    );
+
+    // Update database status to 'failed' if not already done
+    try {
+      const supabase = createAdminSupabaseClient();
+      const { error } = await supabase
+        .from('papers')
+        .update({ vector_status: 'failed' })
+        .eq('paper_id', job.data.paperId);
+
+      if (error) {
+        console.error(
+          `[PDF Download Worker] Failed to update paper ${job.data.paperId} status to failed:`,
+          error
+        );
+      } else {
+        console.log(
+          `[PDF Download Worker] Updated paper ${job.data.paperId} status to 'failed'`
+        );
+      }
+    } catch (error) {
+      console.error(
+        '[PDF Download Worker] Error updating failed status:',
+        error
+      );
+    }
   });
 
   pdfDownloadWorker.on('error', err => {

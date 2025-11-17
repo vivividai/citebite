@@ -31,12 +31,13 @@ export function Navigation({ user }: NavigationProps) {
                 Collections
               </Link>
             )}
-            <Link
+            {/* TODO: Phase 7 - Public Collections Discovery */}
+            {/* <Link
               href="/discover"
               className="transition-colors hover:text-foreground/80 text-foreground/60"
             >
               Discover
-            </Link>
+            </Link> */}
           </nav>
         </div>
         <div className="ml-auto flex items-center space-x-4">

@@ -62,11 +62,11 @@
 
 ### 1.7 Gemini File Search Integration _(→ [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
-- [ ] Initialize Gemini AI client with API key
-- [ ] Implement File Search Store creation function
-- [ ] Implement PDF upload to Store function
-- [ ] Add error handling for rate limits
-- [ ] **E2E Test**: Upload a sample PDF and verify Store creation
+- [x] Initialize Gemini AI client with API key
+- [x] Implement File Search Store creation function
+- [x] Implement PDF upload to Store function
+- [x] Add error handling for rate limits
+- [x] **E2E Test**: Upload a sample PDF and verify Store creation
 
 ### 1.8 Supabase Storage Setup _(→ [DATABASE](./planning/DATABASE.md))_
 

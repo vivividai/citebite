@@ -1,8 +1,10 @@
 /**
  * Collections API
+ * GET /api/collections - Get user's collections
  * POST /api/collections - Create a new collection
  *
  * Task 1.9: Collection Creation API
+ * Task 1.10: Collection List UI
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,12 +17,54 @@ import {
   createCollection,
   updateCollectionFileSearchStore,
   linkPapersToCollection,
+  getUserCollections,
 } from '@/lib/db/collections';
 import {
   semanticScholarPaperToDbPaper,
   upsertPapers,
   getOpenAccessPapers,
 } from '@/lib/db/papers';
+
+/**
+ * GET /api/collections
+ * Get user's collections with paper counts
+ */
+export async function GET() {
+  try {
+    // Authenticate user
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get user's collections
+    const collections = await getUserCollections(supabase, user.id);
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        collections,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching collections:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    return NextResponse.json(
+      {
+        error: 'Failed to fetch collections',
+        message: errorMessage,
+      },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/collections

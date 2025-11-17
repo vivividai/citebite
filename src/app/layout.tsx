@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import './globals.css';
 import { Navigation } from '@/components/layout/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { Providers } from '@/components/providers/Providers';
 
 const geistSans = localFont({
   src: './fonts/GeistVF.woff',
@@ -36,8 +37,10 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Navigation user={user} />
-        <main className="min-h-screen">{children}</main>
+        <Providers>
+          <Navigation user={user} />
+          <main className="min-h-screen">{children}</main>
+        </Providers>
       </body>
     </html>
   );

@@ -87,3 +87,65 @@ export async function getCollectionWithOwnership(
 
   return collection;
 }
+
+/**
+ * Get user's collections with paper counts
+ */
+export async function getUserCollections(
+  supabase: SupabaseClient<Database>,
+  userId: string
+) {
+  // Get all collections for the user
+  const { data: collections, error: collectionsError } = await supabase
+    .from('collections')
+    .select('id, name, search_query, filters, created_at, file_search_store_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (collectionsError) {
+    throw new Error(`Failed to fetch collections: ${collectionsError.message}`);
+  }
+
+  // For each collection, get paper counts
+  const collectionsWithCounts = await Promise.all(
+    collections.map(async collection => {
+      // Get total papers for this collection
+      const { count: totalPapers, error: totalError } = await supabase
+        .from('collection_papers')
+        .select('*', { count: 'exact', head: true })
+        .eq('collection_id', collection.id);
+
+      if (totalError) {
+        console.error(
+          `Failed to get total papers for collection ${collection.id}:`,
+          totalError
+        );
+      }
+
+      // Get indexed papers for this collection
+      const { count: indexedPapers, error: indexedError } = await supabase
+        .from('collection_papers')
+        .select('paper_id, papers!inner(vector_status)', {
+          count: 'exact',
+          head: true,
+        })
+        .eq('collection_id', collection.id)
+        .eq('papers.vector_status', 'completed');
+
+      if (indexedError) {
+        console.error(
+          `Failed to get indexed papers for collection ${collection.id}:`,
+          indexedError
+        );
+      }
+
+      return {
+        ...collection,
+        totalPapers: totalPapers || 0,
+        indexedPapers: indexedPapers || 0,
+      };
+    })
+  );
+
+  return collectionsWithCounts;
+}

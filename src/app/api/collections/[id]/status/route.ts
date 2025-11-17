@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function GET(
   request: NextRequest,
@@ -16,7 +16,7 @@ export async function GET(
     const collectionId = params.id;
 
     // Create Supabase client
-    const supabase = await createServerClient();
+    const supabase = await createServerSupabaseClient();
 
     // Check authentication
     const {

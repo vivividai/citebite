@@ -1,0 +1,17 @@
+# Optional: Redis docker-compose configuration
+# Usage: docker-compose -f docker-compose.redis.yml up -d
+
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: citebite-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

@@ -1,0 +1,180 @@
+/**
+ * Collections API
+ * POST /api/collections - Create a new collection
+ *
+ * Task 1.9: Collection Creation API
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createCollectionSchema } from '@/lib/validations/collections';
+import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
+import { createFileSearchStore } from '@/lib/gemini/fileSearch';
+import { queuePdfDownload } from '@/lib/jobs/queues';
+import {
+  createCollection,
+  updateCollectionFileSearchStore,
+  linkPapersToCollection,
+} from '@/lib/db/collections';
+import {
+  semanticScholarPaperToDbPaper,
+  upsertPapers,
+  getOpenAccessPapers,
+} from '@/lib/db/papers';
+
+/**
+ * POST /api/collections
+ * Create a new collection with papers from Semantic Scholar
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // 1. Parse and validate request body
+    const body = await request.json();
+    const result = createCollectionSchema.safeParse(body);
+
+    if (!result.success) {
+      const errors = Array.isArray(result.error)
+        ? result.error
+        : result.error?.issues || [];
+
+      return NextResponse.json(
+        {
+          error: 'Invalid input',
+          details: errors.map(e => ({
+            field: Array.isArray(e.path)
+              ? e.path.join('.')
+              : String(e.path || ''),
+            message: String(e.message || 'Validation error'),
+          })),
+        },
+        { status: 400 }
+      );
+    }
+
+    const validatedData = result.data;
+
+    // 2. Authenticate user
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 3. Search papers via Semantic Scholar
+    const semanticScholarClient = getSemanticScholarClient();
+    const searchResponse = await semanticScholarClient.searchPapers({
+      keywords: validatedData.keywords,
+      yearFrom: validatedData.filters?.yearFrom,
+      yearTo: validatedData.filters?.yearTo,
+      minCitations: validatedData.filters?.minCitations,
+      openAccessOnly: validatedData.filters?.openAccessOnly,
+      limit: 100, // Default limit for initial collection
+    });
+
+    // 4. Handle empty search results
+    if (searchResponse.total === 0 || searchResponse.data.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'No papers found matching your criteria. Try different keywords or adjust your filters.',
+        },
+        { status: 404 }
+      );
+    }
+
+    const papers = searchResponse.data;
+
+    // 5. Create collection in database
+    const collection = await createCollection(supabase, {
+      name: validatedData.name,
+      search_query: validatedData.keywords,
+      filters: validatedData.filters || null,
+      user_id: user.id,
+    });
+
+    // 6. Upsert papers to database
+    const dbPapers = papers.map(semanticScholarPaperToDbPaper);
+    const upsertedPaperIds = await upsertPapers(supabase, dbPapers);
+
+    // 7. Link papers to collection via collection_papers
+    await linkPapersToCollection(supabase, collection.id, upsertedPaperIds);
+
+    // 8. Create Gemini File Search Store
+    const storeResult = await createFileSearchStore(
+      collection.id,
+      `${validatedData.name} - ${collection.id.substring(0, 8)}`
+    );
+
+    if (!storeResult.success || !storeResult.storeId) {
+      console.error('Failed to create File Search Store:', storeResult.error);
+      // Don't fail the entire request, store can be created later
+      // Log error and continue
+    } else {
+      // 9. Update collection with file_search_store_id
+      await updateCollectionFileSearchStore(
+        supabase,
+        collection.id,
+        storeResult.storeId
+      );
+    }
+
+    // 10. Queue PDF download jobs for Open Access papers
+    const openAccessPapers = getOpenAccessPapers(papers);
+    const queuedJobs: (string | null)[] = [];
+
+    for (const paper of openAccessPapers) {
+      if (!paper.openAccessPdf?.url) continue;
+
+      const jobId = await queuePdfDownload({
+        collectionId: collection.id,
+        paperId: paper.paperId,
+        pdfUrl: paper.openAccessPdf.url,
+      });
+
+      queuedJobs.push(jobId);
+    }
+
+    const successfulJobs = queuedJobs.filter(id => id !== null).length;
+
+    // 11. Return success response
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          collection: {
+            id: collection.id,
+            name: collection.name,
+            searchQuery: collection.search_query,
+            filters: collection.filters,
+            fileSearchStoreId: storeResult.storeId || null,
+            createdAt: collection.created_at,
+          },
+          stats: {
+            totalPapers: papers.length,
+            openAccessPapers: openAccessPapers.length,
+            queuedDownloads: successfulJobs,
+            failedToQueue: queuedJobs.length - successfulJobs,
+          },
+        },
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    // Handle errors
+    console.error('Error creating collection:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    return NextResponse.json(
+      {
+        error: 'Failed to create collection',
+        message: errorMessage,
+      },
+      { status: 500 }
+    );
+  }
+}

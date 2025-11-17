@@ -78,13 +78,13 @@
 
 ### 1.9 Collection Creation API _(→ [BACKEND](./planning/BACKEND.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
-- [ ] Create POST /api/collections route
-- [ ] Validate input with Zod schema (keywords, filters)
-- [ ] Search papers via Semantic Scholar
-- [ ] Save collection and papers to database
-- [ ] Create Gemini File Search Store
-- [ ] Queue PDF download jobs for Open Access papers
-- [ ] **E2E Test**: Create collection and verify database entries + jobs queued
+- [x] Create POST /api/collections route
+- [x] Validate input with Zod schema (keywords, filters)
+- [x] Search papers via Semantic Scholar
+- [x] Save collection and papers to database
+- [x] Create Gemini File Search Store
+- [x] Queue PDF download jobs for Open Access papers
+- [x] **E2E Test**: Create collection and verify database entries + jobs queued (tested: validation, auth, API integration)
 
 ### 1.10 Collection List UI _(→ [FRONTEND](./planning/FRONTEND.md))_
 

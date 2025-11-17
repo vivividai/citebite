@@ -264,6 +264,49 @@ The agent will:
 - Test RLS policies with mock user contexts
 - Report any errors or warnings
 
+### 7. Gemini File Search API - Always Use Latest Documentation
+
+**IMPORTANT: API documentation may be outdated** - Always fetch latest docs before implementation
+
+Gemini File Search is a recently added API, and Claude's training data may not include the latest features, parameters, or breaking changes.
+
+**When working with Gemini File Search API, you MUST:**
+
+1. **First fetch the official documentation**: https://ai.google.dev/gemini-api/docs/file-search
+   - Use the WebFetch tool to retrieve the latest API information
+   - This step is mandatory before any implementation or modification
+2. **Compare with EXTERNAL_APIS.md** to identify any discrepancies
+   - Check if endpoints, parameters, or best practices have changed
+   - Note any new features or deprecations
+3. **Use the official documentation as the source of truth**
+   - If there's a conflict between training data and official docs, follow official docs
+   - EXTERNAL_APIS.md serves as a reference, but may be outdated
+4. **Update EXTERNAL_APIS.md if significant changes are found**
+   - Document breaking changes or new features
+   - Update code examples if API signatures have changed
+   - Add the verification date
+
+**Why this matters:**
+
+- API changes can break existing code if not detected
+- New features may provide better solutions than current implementation
+- Rate limits, pricing, and best practices may have changed
+
+**Example workflow:**
+
+```typescript
+// ❌ BAD: Directly implementing without checking docs
+async function uploadToFileSearch(file: Buffer) {
+  // Using potentially outdated API patterns...
+}
+
+// ✅ GOOD: First fetch latest docs, then implement
+// 1. WebFetch https://ai.google.dev/gemini-api/docs/file-search
+// 2. Verify uploadToFileSearchStore method signature
+// 3. Check for new parameters or options
+// 4. Implement using verified API patterns
+```
+
 ---
 
 ## Development Roadmap

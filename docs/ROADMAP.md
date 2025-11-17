@@ -70,11 +70,11 @@
 
 ### 1.8 Supabase Storage Setup _(→ [DATABASE](./planning/DATABASE.md))_
 
-- [ ] Create 'pdfs' bucket in Supabase Storage
-- [ ] Set bucket to private mode
-- [ ] Implement storage helper functions (upload, download, delete)
-- [ ] Configure RLS policies for bucket access
-- [ ] **E2E Test**: Upload and download a test file
+- [x] Create 'pdfs' bucket in Supabase Storage
+- [x] Set bucket to private mode
+- [x] Implement storage helper functions (upload, download, delete)
+- [x] Configure RLS policies for bucket access
+- [x] **E2E Test**: Upload and download a test file
 
 ### 1.9 Collection Creation API _(→ [BACKEND](./planning/BACKEND.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 

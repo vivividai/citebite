@@ -128,6 +128,26 @@ function buildSemanticScholarQuery(params: {
 
 ## 2. Gemini File Search API
 
+⚠️ **CRITICAL: This section may be outdated**
+
+**Before implementing any Gemini File Search feature:**
+
+1. **Fetch the latest official documentation**: https://ai.google.dev/gemini-api/docs/file-search
+   - Use WebFetch tool to verify API endpoints, parameters, and methods
+   - Gemini File Search is a recently added API with frequent updates
+2. **Verify API changes**
+   - Check if method signatures, parameters, or return types have changed
+   - Look for new features or deprecations
+   - Validate rate limits and pricing information
+3. **Official documentation is the source of truth**
+   - If there's a discrepancy between this document and official docs, follow official docs
+   - This document serves as a quick reference, but may lag behind latest changes
+
+**Last verified**: 2025-11-17
+**Next review**: Every 2 weeks or before major feature implementation
+
+---
+
 **역할**: PDF 문서 벡터화, 저장, 시맨틱 검색 기반 RAG 구현
 
 ### 2.1 핵심 개념

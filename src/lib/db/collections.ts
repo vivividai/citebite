@@ -149,3 +149,99 @@ export async function getUserCollections(
 
   return collectionsWithCounts;
 }
+
+/**
+ * Get a single collection by ID with paper counts
+ */
+export async function getCollectionById(
+  supabase: SupabaseClient<Database>,
+  collectionId: string,
+  userId: string
+) {
+  // Get collection with ownership check
+  const collection = await getCollectionWithOwnership(
+    supabase,
+    collectionId,
+    userId
+  );
+
+  // Get total papers for this collection
+  const { count: totalPapers, error: totalError } = await supabase
+    .from('collection_papers')
+    .select('*', { count: 'exact', head: true })
+    .eq('collection_id', collection.id);
+
+  if (totalError) {
+    console.error(
+      `Failed to get total papers for collection ${collection.id}:`,
+      totalError
+    );
+  }
+
+  // Get indexed papers for this collection
+  const { count: indexedPapers, error: indexedError } = await supabase
+    .from('collection_papers')
+    .select('paper_id, papers!inner(vector_status)', {
+      count: 'exact',
+      head: true,
+    })
+    .eq('collection_id', collection.id)
+    .eq('papers.vector_status', 'completed');
+
+  if (indexedError) {
+    console.error(
+      `Failed to get indexed papers for collection ${collection.id}:`,
+      indexedError
+    );
+  }
+
+  // Get failed papers count
+  const { count: failedPapers, error: failedError } = await supabase
+    .from('collection_papers')
+    .select('paper_id, papers!inner(vector_status)', {
+      count: 'exact',
+      head: true,
+    })
+    .eq('collection_id', collection.id)
+    .eq('papers.vector_status', 'failed');
+
+  if (failedError) {
+    console.error(
+      `Failed to get failed papers for collection ${collection.id}:`,
+      failedError
+    );
+  }
+
+  return {
+    ...collection,
+    totalPapers: totalPapers || 0,
+    indexedPapers: indexedPapers || 0,
+    failedPapers: failedPapers || 0,
+  };
+}
+
+/**
+ * Delete a collection by ID with ownership check
+ * This will cascade delete all related data:
+ * - collection_papers entries
+ * - conversations and messages
+ */
+export async function deleteCollection(
+  supabase: SupabaseClient<Database>,
+  collectionId: string,
+  userId: string
+) {
+  // First verify ownership
+  await getCollectionWithOwnership(supabase, collectionId, userId);
+
+  // Delete the collection (CASCADE will handle related data)
+  const { error } = await supabase
+    .from('collections')
+    .delete()
+    .eq('id', collectionId)
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new Error(`Failed to delete collection: ${error.message}`);
+  }
+}

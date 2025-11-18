@@ -84,3 +84,40 @@ export function getOpenAccessPapers(
 ): SemanticScholarPaper[] {
   return papers.filter(paper => paper.openAccessPdf?.url);
 }
+
+/**
+ * Get papers for a specific collection
+ */
+export async function getCollectionPapers(
+  supabase: SupabaseClient<Database>,
+  collectionId: string
+) {
+  const { data, error } = await supabase
+    .from('collection_papers')
+    .select(
+      `
+      paper_id,
+      papers (
+        paper_id,
+        title,
+        authors,
+        year,
+        abstract,
+        citation_count,
+        venue,
+        open_access_pdf_url,
+        pdf_source,
+        vector_status,
+        created_at
+      )
+    `
+    )
+    .eq('collection_id', collectionId);
+
+  if (error) {
+    throw new Error(`Failed to fetch collection papers: ${error.message}`);
+  }
+
+  // Transform to return just the papers (not the junction table data)
+  return data.map(item => item.papers).filter(paper => paper !== null);
+}

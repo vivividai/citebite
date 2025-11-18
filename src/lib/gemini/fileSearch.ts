@@ -125,7 +125,47 @@ export async function uploadPdfToStore(
         },
       });
 
-      // Poll the operation until completion
+      // Validate operation object
+      if (!operation || typeof operation !== 'object') {
+        throw new Error(
+          `Invalid operation response from Gemini API: ${JSON.stringify(operation)}`
+        );
+      }
+
+      // Check if operation is already completed (has response field)
+      // Some operations complete immediately and return response directly
+      if (operation.response && operation.response.documentName) {
+        console.log('[Gemini] Operation completed immediately');
+        const fileId = operation.response.documentName.split('/').pop();
+        return {
+          success: true,
+          fileId,
+        };
+      }
+
+      // If operation has a name but no response, poll for completion
+      // Note: operations.get() in @google/genai v1.29.1 has issues
+      // For now, we'll treat operations with response as complete
+      if (!operation.response && operation.name) {
+        console.warn(
+          '[Gemini] Operation requires polling, but operations.get() is not reliable in SDK v1.29.1'
+        );
+        console.warn('[Gemini] Attempting polling anyway...');
+        const result = await pollOperation(operation, client);
+        if (result.success) {
+          return {
+            success: true,
+            fileId: result.fileId,
+          };
+        } else {
+          return {
+            success: false,
+            error: result.error || 'Polling failed',
+          };
+        }
+      }
+
+      // Fallback: try polling
       const result = await pollOperation(operation, client);
 
       if (result.success) {
@@ -233,7 +273,7 @@ export async function deleteFileSearchStore(storeId: string): Promise<boolean> {
  */
 async function pollOperation(
   operation: {
-    name: string;
+    name?: string;
     done?: boolean;
     error?: { message?: string };
     response?: { documentId?: string; name?: string };
@@ -241,6 +281,14 @@ async function pollOperation(
   client: ReturnType<typeof getGeminiClient>
 ): Promise<{ success: boolean; fileId?: string; error?: string }> {
   let attempts = 0;
+
+  // Validate operation has a name
+  if (!operation.name) {
+    return {
+      success: false,
+      error: `Operation missing 'name' field. Response: ${JSON.stringify(operation)}`,
+    };
+  }
 
   // If operation is already done, return immediately
   if (operation.done) {

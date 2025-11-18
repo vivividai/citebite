@@ -110,21 +110,21 @@
 
 ### 2.2 PDF Indexing Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
-- [ ] Retrieve PDF from Supabase Storage
-- [ ] Upload PDF to Gemini File Search Store with metadata
-- [ ] Update `Paper.vectorStatus` to 'completed'
-- [ ] Handle API errors and update status to 'failed'
-- [ ] Implement exponential backoff for rate limits
-- [ ] **E2E Test**: Queue indexing job and verify vectorStatus updated
+- [x] Retrieve PDF from Supabase Storage
+- [x] Upload PDF to Gemini File Search Store with metadata
+- [x] Update `Paper.vectorStatus` to 'completed'
+- [x] Handle API errors and update status to 'failed'
+- [x] Implement exponential backoff for rate limits
+- [x] **E2E Test**: Queue indexing job and verify vectorStatus updated
 
 ### 2.3 Collection Detail Page _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create /collections/[id] page
-- [ ] Display collection header (title, description, stats)
-- [ ] Show paper list with status indicators
-- [ ] Add tabs: Papers, Chat, Insights
-- [ ] Display processing progress (X/Y papers indexed)
-- [ ] **E2E Test**: View collection with mixed paper statuses
+- [x] Create /collections/[id] page
+- [x] Display collection header (title, description, stats)
+- [x] Show paper list with status indicators
+- [x] Add tabs: Papers, Chat, Insights
+- [x] Display processing progress (X/Y papers indexed)
+- [x] **E2E Test**: View collection with mixed paper statuses
 
 ### 2.4 Paper List UI _(→ [FRONTEND](./planning/FRONTEND.md))_
 

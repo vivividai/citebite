@@ -46,16 +46,14 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get paper processing status
-    // TODO: In Phase 1.2, we created the schema but vector_status field
-    // will be added in Phase 2. For now, we'll use a placeholder structure.
+    // Get paper processing status with vector_status
     const { data: collectionPapers, error: papersError } = await supabase
       .from('collection_papers')
       .select(
         `
         paper:papers(
           paper_id,
-          title
+          vector_status
         )
       `
       )
@@ -69,32 +67,35 @@ export async function GET(
       );
     }
 
-    const total = collectionPapers?.length || 0;
+    // Calculate stats from actual vector_status values
+    const papers = collectionPapers || [];
+    const totalPapers = papers.length;
 
-    // TODO: Once vector_status field is added in Phase 2, update this logic
-    // For now, return basic stats
-    const completed = 0; // Will be: papers with vector_status === 'completed'
-    const failed = 0; // Will be: papers with vector_status === 'failed'
-    const processing = 0; // Will be: papers with vector_status === 'processing'
-    const pending = total; // Will be: papers with vector_status === 'pending'
+    let indexedPapers = 0;
+    let failedPapers = 0;
+    let downloadingPapers = 0;
 
-    const progress = total > 0 ? (completed / total) * 100 : 0;
+    papers.forEach((item: { paper?: { vector_status?: string } }) => {
+      const status = item.paper?.vector_status;
+      if (status === 'completed') {
+        indexedPapers++;
+      } else if (status === 'failed') {
+        failedPapers++;
+      } else if (status === 'pending') {
+        downloadingPapers++;
+      }
+    });
+
+    const allProcessed = indexedPapers + failedPapers === totalPapers;
 
     return NextResponse.json({
-      total,
-      completed,
-      failed,
-      processing,
-      pending,
-      progress: Math.round(progress * 100) / 100, // Round to 2 decimal places
-      status:
-        completed === total
-          ? 'completed'
-          : failed > 0
-            ? 'partial'
-            : processing > 0
-              ? 'processing'
-              : 'pending',
+      data: {
+        totalPapers,
+        indexedPapers,
+        failedPapers,
+        downloadingPapers,
+        allProcessed,
+      },
     });
   } catch (error) {
     console.error('Error fetching collection status:', error);

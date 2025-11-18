@@ -147,11 +147,11 @@
 
 ### 2.6 Chat API - Create Conversation _(→ [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Create POST /api/conversations route
-- [ ] Validate input (collectionId, verify ownership)
-- [ ] Create conversation with auto-generated title placeholder
-- [ ] Return conversation ID
-- [ ] **E2E Test**: Create conversation via API
+- [x] Create POST /api/conversations route
+- [x] Validate input (collectionId, verify ownership)
+- [x] Create conversation with auto-generated title placeholder
+- [x] Return conversation ID
+- [x] **E2E Test**: Create conversation via API
 
 ### 2.7 Chat API - Send Message _(→ [BACKEND](./planning/BACKEND.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 

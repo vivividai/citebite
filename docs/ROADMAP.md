@@ -100,13 +100,13 @@
 
 ### 2.1 PDF Download Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Implement download logic in worker (`lib/jobs/workers/pdf-download.ts`)
-- [ ] Download PDF from Semantic Scholar URL
-- [ ] Upload to Supabase Storage
-- [ ] Update `Paper.pdfUrl` and `Paper.storageKey`
-- [ ] Handle errors and queue retries (max 3 attempts)
-- [ ] Queue indexing job on success
-- [ ] **E2E Test**: Queue download job and verify PDF in storage
+- [x] Implement download logic in worker (`lib/jobs/workers/pdf-download.ts`)
+- [x] Download PDF from Semantic Scholar URL
+- [x] Upload to Supabase Storage
+- [x] Update `Paper.pdfUrl` and `Paper.storageKey`
+- [x] Handle errors and queue retries (max 3 attempts)
+- [x] Queue indexing job on success
+- [x] **E2E Test**: Queue download job and verify PDF in storage
 
 ### 2.2 PDF Indexing Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 

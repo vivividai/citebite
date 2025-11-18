@@ -26,7 +26,7 @@ export function getRedisClient(): Redis | null {
   try {
     // Create new Redis client
     redisClient = new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null, // Required for BullMQ
       enableReadyCheck: true,
       // Retry strategy: exponential backoff
       retryStrategy(times) {

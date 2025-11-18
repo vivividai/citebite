@@ -128,13 +128,13 @@
 
 ### 2.4 Paper List UI _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create paper table/card component
-- [ ] Display: title, authors, year, citations, Open Access badge
-- [ ] Add filters: status (all/indexed/failed), year range
-- [ ] Add sorting: relevance, citations, year
-- [ ] Show PDF download link (if available)
-- [ ] Add "View Abstract" modal
-- [ ] **E2E Test**: Filter and sort papers, open abstract modal
+- [x] Create paper table/card component
+- [x] Display: title, authors, year, citations, Open Access badge
+- [x] Add filters: status (all/indexed/failed), year range
+- [x] Add sorting: relevance, citations, year
+- [x] Show PDF download link (if available)
+- [x] Add "View Abstract" modal
+- [x] **E2E Test**: Filter and sort papers, open abstract modal
 
 ### 2.5 Conversation Schema _(→ [DATABASE](./planning/DATABASE.md))_
 

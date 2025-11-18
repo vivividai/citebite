@@ -26,3 +26,25 @@ export const sendMessageSchema = z.object({
 });
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
+
+/**
+ * Validation schema for getting messages from a conversation
+ */
+export const getMessagesSchema = z.object({
+  limit: z.coerce
+    .number()
+    .int('Limit must be an integer')
+    .min(1, 'Limit must be at least 1')
+    .max(100, 'Limit cannot exceed 100')
+    .default(50),
+  before: z
+    .string()
+    .datetime('Before must be a valid ISO datetime string')
+    .optional(),
+  after: z
+    .string()
+    .datetime('After must be a valid ISO datetime string')
+    .optional(),
+});
+
+export type GetMessagesInput = z.infer<typeof getMessagesSchema>;

@@ -1,13 +1,124 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { sendMessageSchema } from '@/lib/validations/conversations';
+import {
+  sendMessageSchema,
+  getMessagesSchema,
+} from '@/lib/validations/conversations';
 import { getConversationWithOwnership } from '@/lib/db/conversations';
 import { getCollectionWithOwnership } from '@/lib/db/collections';
 import { getCollectionPapers } from '@/lib/db/papers';
-import { createMessage, getLatestMessages } from '@/lib/db/messages';
+import {
+  createMessage,
+  getLatestMessages,
+  getMessagesByConversationWithCursor,
+} from '@/lib/db/messages';
 import { updateLastMessageAt } from '@/lib/db/conversations';
 import { queryWithFileSearch } from '@/lib/gemini/chat';
 import { validateAndEnrichCitations } from '@/lib/citations/validator';
+
+/**
+ * GET /api/conversations/[id]/messages
+ *
+ * Retrieve messages from a conversation with cursor-based pagination
+ *
+ * Query parameters:
+ * - limit: number (1-100, default 50)
+ * - before: ISO datetime string (get messages before this timestamp)
+ * - after: ISO datetime string (get messages after this timestamp)
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: conversationId } = await params;
+
+    // 1. Authenticate user
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 2. Parse and validate query parameters
+    const searchParams = request.nextUrl.searchParams;
+    const queryParams = {
+      limit: searchParams.get('limit'),
+      before: searchParams.get('before'),
+      after: searchParams.get('after'),
+    };
+
+    const result = getMessagesSchema.safeParse(queryParams);
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          error: 'Invalid query parameters',
+          details: result.error.issues,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { limit, before, after } = result.data;
+
+    // 3. Verify conversation exists and user has access
+    await getConversationWithOwnership(supabase, conversationId, user.id);
+
+    // 4. Fetch messages with cursor-based pagination
+    const { messages, pagination } = await getMessagesByConversationWithCursor(
+      supabase,
+      conversationId,
+      { limit, before, after }
+    );
+
+    // 5. Return messages with pagination metadata
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          messages,
+          pagination,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error(
+      '[API] Error in GET /api/conversations/[id]/messages:',
+      error
+    );
+
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    // Handle specific error types
+    if (
+      errorMessage.includes('not found') ||
+      errorMessage.includes('access denied')
+    ) {
+      return NextResponse.json(
+        {
+          error: 'Not found',
+          message: errorMessage,
+        },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        message: errorMessage,
+      },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/conversations/[id]/messages

@@ -84,6 +84,113 @@ export async function getMessagesByConversation(
 }
 
 /**
+ * Pagination metadata for cursor-based pagination
+ */
+export interface PaginationMetadata {
+  limit: number;
+  hasMore: boolean;
+  nextCursor?: string; // timestamp of oldest message in result (for loading older messages)
+  prevCursor?: string; // timestamp of newest message in result (for loading newer messages)
+}
+
+/**
+ * Result type for paginated messages
+ */
+export interface PaginatedMessages {
+  messages: Database['public']['Tables']['messages']['Row'][];
+  pagination: PaginationMetadata;
+}
+
+/**
+ * Get messages for a conversation with cursor-based pagination
+ * Supports bidirectional pagination using timestamps
+ *
+ * @param supabase - Supabase client
+ * @param conversationId - Conversation ID
+ * @param options - Pagination options
+ * @param options.limit - Number of messages to return (default: 50, max: 100)
+ * @param options.before - Get messages before this timestamp (for loading older messages)
+ * @param options.after - Get messages after this timestamp (for loading newer messages)
+ * @returns Messages with pagination metadata
+ */
+export async function getMessagesByConversationWithCursor(
+  supabase: SupabaseClient<Database>,
+  conversationId: string,
+  options?: {
+    limit?: number;
+    before?: string;
+    after?: string;
+  }
+): Promise<PaginatedMessages> {
+  const limit = Math.min(options?.limit || 50, 100);
+
+  // Build the query
+  let query = supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', conversationId);
+
+  // Apply cursor filtering
+  if (options?.before) {
+    // Get messages before this timestamp (older messages)
+    query = query.lt('timestamp', options.before);
+  }
+
+  if (options?.after) {
+    // Get messages after this timestamp (newer messages)
+    query = query.gt('timestamp', options.after);
+  }
+
+  // Fetch one extra message to determine if there are more
+  const fetchLimit = limit + 1;
+
+  // Order and limit
+  query = query.order('timestamp', { ascending: true }).limit(fetchLimit);
+
+  const { data: messages, error } = await query;
+
+  if (error) {
+    throw new Error(`Failed to fetch messages: ${error.message}`);
+  }
+
+  if (!messages) {
+    return {
+      messages: [],
+      pagination: {
+        limit,
+        hasMore: false,
+      },
+    };
+  }
+
+  // Check if there are more messages
+  const hasMore = messages.length > limit;
+
+  // Remove the extra message if it exists
+  const resultMessages = hasMore ? messages.slice(0, limit) : messages;
+
+  // Build pagination metadata
+  const pagination: PaginationMetadata = {
+    limit,
+    hasMore,
+  };
+
+  if (resultMessages.length > 0) {
+    // nextCursor: timestamp of oldest message (for loading older messages with ?before=)
+    pagination.nextCursor =
+      resultMessages[resultMessages.length - 1].timestamp || undefined;
+
+    // prevCursor: timestamp of newest message (for loading newer messages with ?after=)
+    pagination.prevCursor = resultMessages[0].timestamp || undefined;
+  }
+
+  return {
+    messages: resultMessages,
+    pagination,
+  };
+}
+
+/**
  * Get the latest N messages from a conversation
  * Useful for including conversation context in LLM prompts
  * Returns messages in chronological order (oldest first)

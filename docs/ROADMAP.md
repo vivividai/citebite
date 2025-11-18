@@ -166,11 +166,11 @@
 
 ### 2.8 Chat API - Get Messages _(→ [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Create GET /api/conversations/[id]/messages route
-- [ ] Return messages with citations (include paper metadata)
-- [ ] Implement pagination (limit 50 messages)
-- [ ] Add cursor-based pagination for older messages
-- [ ] **E2E Test**: Retrieve conversation history
+- [x] Create GET /api/conversations/[id]/messages route
+- [x] Return messages with citations (include paper metadata)
+- [x] Implement pagination (limit 50 messages)
+- [x] Add cursor-based pagination for older messages
+- [x] **E2E Test**: Retrieve conversation history
 
 ### 2.9 Chat UI - Message Display _(→ [FRONTEND](./planning/FRONTEND.md))_
 

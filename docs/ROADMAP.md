@@ -88,11 +88,11 @@
 
 ### 1.10 Collection List UI _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Display user's collections on home page
-- [ ] Show collection metadata (title, paper count, created date)
-- [ ] Add "Create Collection" dialog with search form
-- [ ] Show progress indicator while creating collection
-- [ ] **E2E Test**: Complete collection creation flow end-to-end
+- [x] Display user's collections on home page
+- [x] Show collection metadata (title, paper count, created date)
+- [x] Add "Create Collection" dialog with search form
+- [x] Show progress indicator while creating collection
+- [x] **E2E Test**: Complete collection creation flow end-to-end
 
 ---
 

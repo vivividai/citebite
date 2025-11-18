@@ -155,14 +155,14 @@
 
 ### 2.7 Chat API - Send Message _(→ [BACKEND](./planning/BACKEND.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
-- [ ] Create POST /api/conversations/[id]/messages route
-- [ ] Validate conversation exists and user has access
-- [ ] Save user message to database
-- [ ] Query Gemini with File Search tool
-- [ ] Extract grounding metadata for citations
-- [ ] Validate cited papers exist in collection
-- [ ] Save AI response and citations to database
-- [ ] **E2E Test**: Send message and verify response with citations
+- [x] Create POST /api/conversations/[id]/messages route
+- [x] Validate conversation exists and user has access
+- [x] Save user message to database
+- [x] Query Gemini with File Search tool
+- [x] Extract grounding metadata for citations
+- [x] Validate cited papers exist in collection
+- [x] Save AI response and citations to database
+- [x] **E2E Test**: Send message and verify response with citations
 
 ### 2.8 Chat API - Get Messages _(→ [BACKEND](./planning/BACKEND.md))_
 

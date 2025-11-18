@@ -138,12 +138,12 @@
 
 ### 2.5 Conversation Schema _(→ [DATABASE](./planning/DATABASE.md))_
 
-- [ ] Create SQL migration for Conversation and Message tables
-- [ ] Create SQL migration for Citation table for tracking cited papers
-- [ ] Apply migration to database (`npx supabase db push`)
-- [ ] Add indexes for performance (collectionId, userId, createdAt)
-- [ ] Regenerate TypeScript types (`npx supabase gen types typescript`)
-- [ ] **E2E Test**: Create conversation record manually and query with Supabase client
+- [x] Create SQL migration for Conversation and Message tables
+- [x] Create SQL migration for Citation table for tracking cited papers
+- [x] Apply migration to database (`npx supabase db push`)
+- [x] Add indexes for performance (collectionId, userId, createdAt)
+- [x] Regenerate TypeScript types (`npx supabase gen types typescript`)
+- [x] **E2E Test**: Create conversation record manually and query with Supabase client
 
 ### 2.6 Chat API - Create Conversation _(→ [BACKEND](./planning/BACKEND.md))_
 

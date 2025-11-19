@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "prepare": "husky",
-    "workers": "tsx scripts/start-workers.ts"
+    "workers": "tsx scripts/dev/start-workers.ts",
+    "queues:check": "tsx scripts/ops/check-queues.ts",
+    "queues:clear": "tsx scripts/ops/clear-queues.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.1",
@@ -36,7 +38,10 @@
     "react-dom": "^18",
     "react-hook-form": "^7.66.0",
     "react-hot-toast": "^2.6.0",
+    "react-markdown": "^10.1.0",
     "react-query": "^3.39.3",
+    "react-syntax-highlighter": "^16.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^4.1.12"
@@ -47,6 +52,7 @@
     "@types/pdfkit": "^0.17.3",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "dotenv": "^17.2.3",
     "eslint": "^8",
     "eslint-config-next": "14.2.33",

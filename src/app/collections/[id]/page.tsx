@@ -3,6 +3,7 @@
 import { useCollection } from '@/hooks/useCollection';
 import { CollectionHeader } from '@/components/collections/CollectionHeader';
 import { PaperList } from '@/components/collections/PaperList';
+import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, AlertCircle, MessageSquare, Lightbulb } from 'lucide-react';
 import { useParams } from 'next/navigation';
@@ -94,15 +95,7 @@ export default function CollectionDetailPage() {
         </TabsContent>
 
         <TabsContent value="chat" className="space-y-4">
-          <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <MessageSquare className="h-12 w-12 text-muted-foreground" />
-            <div className="text-center">
-              <h3 className="text-lg font-semibold">Chat Coming Soon</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                The chat interface will be available in Phase 2.7-2.9
-              </p>
-            </div>
-          </div>
+          <ChatInterface collectionId={collection.id} />
         </TabsContent>
 
         <TabsContent value="insights" className="space-y-4">

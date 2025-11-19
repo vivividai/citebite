@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**CiteBite (formerly ResearchGPT)** is an AI-powered research assistant that enables researchers to automatically collect papers on specific topics, chat with them using RAG (Retrieval-Augmented Generation), and generate insights about research trends.
+**CiteBite** is an AI-powered research assistant that enables researchers to automatically collect papers on specific topics, chat with them using RAG (Retrieval-Augmented Generation), and generate insights about research trends.
 
 ### Core Value Proposition
 
@@ -67,8 +67,6 @@ Technical documentation is organized by concern for easier navigation:
 ```bash
 # Install dependencies
 npm install
-# or
-pnpm install
 
 # Set up environment variables
 cp .env.example .env.local
@@ -106,14 +104,16 @@ citebite/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── (auth)/            # Auth routes
-│   │   ├── collections/       # Collection pages
-│   │   ├── chat/              # Chat interface
+│   │   ├── collections/       # Collection pages (includes integrated chat UI)
+│   │   │   └── [id]/          # Collection detail page with chat interface
 │   │   └── api/               # API routes
-│   │       ├── auth/          # Supabase auth callback
 │   │       ├── collections/   # Collection CRUD
 │   │       ├── papers/        # Paper upload/management
 │   │       └── conversations/ # Chat endpoints
 │   ├── components/            # React components
+│   │   ├── chat/              # Chat UI components
+│   │   ├── collections/       # Collection UI components
+│   │   └── layout/            # Layout components
 │   ├── lib/                   # Utilities
 │   │   ├── supabase/         # Supabase client (client & server)
 │   │   ├── db/               # Database helpers and types

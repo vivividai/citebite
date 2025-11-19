@@ -174,27 +174,27 @@
 
 ### 2.9 Chat UI - Message Display _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create message list component
-- [ ] Display user and AI messages with styling
-- [ ] Render markdown in messages
-- [ ] Display citations with paper links
-- [ ] Add syntax highlighting for code blocks
+- [x] Create message list component
+- [x] Display user and AI messages with styling
+- [x] Render markdown in messages
+- [x] Display citations with paper links
+- [x] Add syntax highlighting for code blocks
 - [ ] **E2E Test**: View conversation with various message types
 
 ### 2.10 Chat UI - Message Input _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create message input component with textarea
-- [ ] Add send button and keyboard shortcut (Cmd+Enter)
-- [ ] Show loading state while waiting for response
-- [ ] Display error messages for failed requests
-- [ ] Add retry button for failed messages
+- [x] Create message input component with textarea
+- [x] Add send button and keyboard shortcut (Cmd+Enter)
+- [x] Show loading state while waiting for response
+- [x] Display error messages for failed requests
+- [x] Add retry button for failed messages
 - [ ] **E2E Test**: Send message and see response stream in
 
 ### 2.11 Citation Display Component _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create citation card component
+- [x] Create citation card component
 - [ ] Show cited paper title, authors, year
-- [ ] Link to paper in collection
+- [x] Link to paper in collection
 - [ ] Show citation count indicator (e.g., "Cited 3 times")
 - [ ] **E2E Test**: Click citation and navigate to paper
 

@@ -8,7 +8,7 @@
  *   tsx scripts/start-workers.ts
  */
 
-import { startAllWorkers } from '../src/lib/jobs/workers';
+import { startAllWorkers } from '../../src/lib/jobs/workers';
 
 // Load environment variables
 import dotenv from 'dotenv';

@@ -54,23 +54,11 @@ export class SemanticScholarClient {
 
   /**
    * Build search query string from parameters
+   * Note: Year and citation filters are now handled as separate HTTP parameters
    */
   private buildQuery(params: SearchParams): string {
-    let query = params.keywords;
-
-    // Add year filter if specified
-    if (params.yearFrom || params.yearTo) {
-      const yearFrom = params.yearFrom || 1900;
-      const yearTo = params.yearTo || new Date().getFullYear();
-      query += ` year:${yearFrom}-${yearTo}`;
-    }
-
-    // Add citation count filter if specified
-    if (params.minCitations !== undefined) {
-      query += ` citationCount:>${params.minCitations}`;
-    }
-
-    return query;
+    // Return only the keywords - filters are added as HTTP parameters
+    return params.keywords;
   }
 
   /**
@@ -156,6 +144,18 @@ export class SemanticScholarClient {
       limit: params.limit || 100,
       offset: params.offset || 0,
     };
+
+    // Add year filter if specified (as separate parameter, not in query string)
+    if (params.yearFrom || params.yearTo) {
+      const yearFrom = params.yearFrom || 1900;
+      const yearTo = params.yearTo || new Date().getFullYear();
+      requestParams.year = `${yearFrom}-${yearTo}`;
+    }
+
+    // Add minimum citation count filter if specified (as separate parameter)
+    if (params.minCitations !== undefined) {
+      requestParams.minCitationCount = params.minCitations;
+    }
 
     // Add Open Access filter if specified
     if (params.openAccessOnly) {

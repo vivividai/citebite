@@ -21,12 +21,32 @@ const MAX_PDF_SIZE = 100 * 1024 * 1024; // 100MB
  * Download PDF from URL
  */
 async function downloadPdfFromUrl(url: string): Promise<Buffer> {
+  // Use browser-like headers to avoid bot detection
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: PDF_DOWNLOAD_TIMEOUT,
     maxContentLength: MAX_PDF_SIZE,
     headers: {
-      'User-Agent': 'CiteBite/1.0 (Research Paper Collector)',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+      // Add Referer based on URL domain to appear more legitimate
+      ...(url.includes('semanticscholar.org') && {
+        Referer: 'https://www.semanticscholar.org/',
+      }),
+      ...(url.includes('arxiv.org') && {
+        Referer: 'https://arxiv.org/',
+      }),
     },
   });
 

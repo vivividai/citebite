@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Bot } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
@@ -7,6 +8,9 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CitationCard, CitedPaper } from './CitationCard';
+import { CitedText } from './CitedText';
+import { SourceDetailDialog } from './SourceDetailDialog';
+import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 
 interface AssistantMessageProps {
   content: string;
@@ -21,9 +25,35 @@ export function AssistantMessage({
   citedPapers = [],
   collectionId,
 }: AssistantMessageProps) {
+  const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
+    null
+  );
+  const [selectedChunkIndex, setSelectedChunkIndex] = useState<number>(0);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   const timeAgo = timestamp
     ? formatDistanceToNow(new Date(timestamp), { addSuffix: true })
     : null;
+
+  // Extract grounding data from citedPapers (new format)
+  const groundingData = citedPapers[0];
+  const groundingChunks = groundingData?.chunks as GroundingChunk[] | undefined;
+  const groundingSupports = groundingData?.supports as
+    | GroundingSupport[]
+    | undefined;
+
+  // Check if this is new grounding-based citation format
+  const hasGroundingData =
+    groundingChunks && groundingChunks.length > 0 && groundingSupports;
+
+  // Filter for legacy paper citations (paperId-based)
+  const legacyPaperCitations = citedPapers.filter(p => p.paperId);
+
+  const handleSourceClick = (chunk: GroundingChunk, index: number) => {
+    setSelectedChunk(chunk);
+    setSelectedChunkIndex(index);
+    setIsDialogOpen(true);
+  };
 
   return (
     <div className="flex gap-3">
@@ -33,58 +63,88 @@ export function AssistantMessage({
       <div className="flex flex-col max-w-[80%]">
         <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
           <div className="prose prose-sm max-w-none prose-p:my-2 prose-p:leading-relaxed prose-pre:my-2 prose-headings:my-2">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code(props) {
-                  const { children, className } = props;
-                  const match = /language-(\w+)/.exec(className || '');
-                  const isInline = !match;
+            {hasGroundingData ? (
+              <CitedText
+                content={content}
+                groundingChunks={groundingChunks}
+                groundingSupports={groundingSupports}
+              />
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code(props) {
+                    const { children, className } = props;
+                    const match = /language-(\w+)/.exec(className || '');
+                    const isInline = !match;
 
-                  if (isInline) {
+                    if (isInline) {
+                      return (
+                        <code className="bg-gray-200 text-red-600 px-1.5 py-0.5 rounded text-xs font-mono">
+                          {children}
+                        </code>
+                      );
+                    }
+
                     return (
-                      <code className="bg-gray-200 text-red-600 px-1.5 py-0.5 rounded text-xs font-mono">
-                        {children}
-                      </code>
+                      <SyntaxHighlighter
+                        style={vscDarkPlus}
+                        language={match[1]}
+                        PreTag="div"
+                        className="rounded-md !my-2"
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
                     );
-                  }
-
-                  return (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      className="rounded-md !my-2"
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  );
-                },
-                a(props) {
-                  return (
-                    <a
-                      {...props}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  );
-                },
-              }}
-            >
-              {content}
-            </ReactMarkdown>
+                  },
+                  a(props) {
+                    return (
+                      <a
+                        {...props}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      />
+                    );
+                  },
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            )}
           </div>
         </div>
         {timeAgo && (
           <span className="text-xs text-muted-foreground mt-1">{timeAgo}</span>
         )}
-        {citedPapers.length > 0 && (
+
+        {/* Show grounding-based sources */}
+        {hasGroundingData && groundingChunks && (
           <div className="mt-3 space-y-2">
             <p className="text-xs font-medium text-muted-foreground">
-              Citations ({citedPapers.length})
+              Sources ({groundingChunks.length})
             </p>
-            {citedPapers.map(paper => (
+            <div className="flex flex-wrap gap-2">
+              {groundingChunks.map((chunk, index) => (
+                <button
+                  key={index}
+                  className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                  onClick={() => handleSourceClick(chunk, index)}
+                >
+                  Source {index + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Show legacy paper citations (for backward compatibility) */}
+        {legacyPaperCitations.length > 0 && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Citations ({legacyPaperCitations.length})
+            </p>
+            {legacyPaperCitations.map(paper => (
               <CitationCard
                 key={paper.paperId}
                 paper={paper}
@@ -94,6 +154,14 @@ export function AssistantMessage({
           </div>
         )}
       </div>
+
+      {/* Source Detail Dialog */}
+      <SourceDetailDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        chunk={selectedChunk}
+        sourceIndex={selectedChunkIndex}
+      />
     </div>
   );
 }

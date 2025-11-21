@@ -1,8 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { createConversation } from '@/lib/db/conversations';
+import {
+  createConversation,
+  getConversationsByCollection,
+} from '@/lib/db/conversations';
 import { getCollectionWithOwnership } from '@/lib/db/collections';
 import { createConversationSchema } from '@/lib/validations/conversations';
+
+/**
+ * GET /api/conversations?collectionId=xxx
+ * Get all conversations for a collection
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // 1. Authenticate user
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 2. Get collectionId from query params
+    const searchParams = request.nextUrl.searchParams;
+    const collectionId = searchParams.get('collectionId');
+
+    if (!collectionId) {
+      return NextResponse.json(
+        { error: 'Missing collectionId query parameter' },
+        { status: 400 }
+      );
+    }
+
+    // 3. Verify collection exists and user owns it
+    try {
+      await getCollectionWithOwnership(supabase, collectionId, user.id);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+
+      if (errorMessage.includes('not found or access denied')) {
+        return NextResponse.json(
+          {
+            error: 'Collection not found',
+            message: errorMessage,
+          },
+          { status: 404 }
+        );
+      }
+
+      throw error;
+    }
+
+    // 4. Get conversations for the collection
+    const conversations = await getConversationsByCollection(
+      supabase,
+      collectionId,
+      user.id
+    );
+
+    // 5. Return success response
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          conversations,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error('Failed to fetch conversations:', error);
+
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    return NextResponse.json(
+      {
+        error: 'Failed to fetch conversations',
+        message: errorMessage,
+      },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/conversations

@@ -50,7 +50,9 @@ function Stat({
 }
 
 export function CollectionHeader({ collection }: CollectionHeaderProps) {
-  const isProcessing = collection.indexedPapers < collection.totalPapers;
+  // Check if processing is complete: indexed + failed should equal total
+  const isProcessing =
+    collection.indexedPapers + collection.failedPapers < collection.totalPapers;
   const deleteCollection = useDeleteCollection();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 

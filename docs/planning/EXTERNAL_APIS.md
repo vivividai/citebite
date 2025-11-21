@@ -129,7 +129,18 @@ function buildSemanticScholarQuery(params: {
 
 ## 2. HuggingFace Inference API (SPECTER2)
 
-**역할**: 검색 쿼리를 768차원 임베딩 벡터로 변환하여 semantic similarity 계산
+⚠️ **NOT IMPLEMENTED** - This feature was attempted but abandoned due to technical limitations.
+
+**Reason for abandonment**:
+
+- SPECTER2 model is **not deployed** on HuggingFace Inference API
+- Alternative models (e.g., all-MiniLM-L6-v2) have dimension mismatch (384 vs 768)
+- Cannot compute cosine similarity between query embeddings (384-dim) and paper embeddings from Semantic Scholar (768-dim)
+- Would require custom infrastructure (Python FastAPI server) to run SPECTER2 directly
+
+**Current implementation**: Using **keyword search only** via Semantic Scholar API (relevance-based ranking is sufficient for most use cases)
+
+**역할**: ~~검색 쿼리를 768차원 임베딩 벡터로 변환하여 semantic similarity 계산~~ (deprecated)
 
 **Last verified**: 2025-11-21
 
@@ -171,7 +182,8 @@ Base URL: https://api-inference.huggingface.co/models/allenai/specter2
 ```typescript
 import axios from 'axios';
 
-const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/allenai/specter2';
+const HUGGINGFACE_API_URL =
+  'https://api-inference.huggingface.co/models/allenai/specter2';
 const HUGGINGFACE_API_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
 
 async function embedQuery(text: string): Promise<number[]> {
@@ -203,16 +215,16 @@ async function embedQuery(text: string): Promise<number[]> {
 
 ### 2.6 SPECTER2 vs 기존 SPECTER API
 
-| 항목                  | SPECTER2 (HuggingFace)                  | Legacy SPECTER API                               |
-| --------------------- | --------------------------------------- | ------------------------------------------------ |
-| API 엔드포인트        | api-inference.huggingface.co            | model-apis.semanticscholar.org                   |
-| 상태                  | ✅ 활성화 (2025년 현재)                 | ❌ 작동 불가 (2021년 이후 업데이트 없음)         |
-| 무료 tier             | ✅ 30,000 requests/month                | ❓ 불명 (문서화 안됨)                            |
-| 인증                  | ✅ Read token 필요                      | ❓ 불명                                           |
-| Rate limit            | ~10 req/sec                             | 불명                                             |
-| 응답 속도             | 1-2초                                   | N/A                                              |
-| 문서화                | ✅ 공식 문서 존재                       | ❌ GitHub README만 존재                          |
-| **추천 여부**         | ✅ **강력 추천**                        | ❌ 사용 불가                                     |
+| 항목           | SPECTER2 (HuggingFace)       | Legacy SPECTER API                       |
+| -------------- | ---------------------------- | ---------------------------------------- |
+| API 엔드포인트 | api-inference.huggingface.co | model-apis.semanticscholar.org           |
+| 상태           | ✅ 활성화 (2025년 현재)      | ❌ 작동 불가 (2021년 이후 업데이트 없음) |
+| 무료 tier      | ✅ 30,000 requests/month     | ❓ 불명 (문서화 안됨)                    |
+| 인증           | ✅ Read token 필요           | ❓ 불명                                  |
+| Rate limit     | ~10 req/sec                  | 불명                                     |
+| 응답 속도      | 1-2초                        | N/A                                      |
+| 문서화         | ✅ 공식 문서 존재            | ❌ GitHub README만 존재                  |
+| **추천 여부**  | ✅ **강력 추천**             | ❌ 사용 불가                             |
 
 ### 2.7 대안: Semantic Scholar API의 `embedding.specter_v2`
 
@@ -232,6 +244,7 @@ fields=paperId,embedding.specter_v2
 ```
 
 **사용 방법**:
+
 - Hybrid Search의 **Step 3: 논문 임베딩 가져오기**에서 사용
 - HuggingFace API로 쿼리 임베딩 생성 + Semantic Scholar API로 논문 임베딩 가져오기
 

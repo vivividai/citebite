@@ -11,7 +11,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
 import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
-import { hybridSearchWithFallback, removeSimilarityField } from '@/lib/semantic-scholar/hybrid-search';
 import { createFileSearchStore } from '@/lib/gemini/fileSearch';
 import { queuePdfDownload } from '@/lib/jobs/queues';
 import {
@@ -25,7 +24,6 @@ import {
   upsertPapers,
   getOpenAccessPapers,
 } from '@/lib/db/papers';
-import type { Paper } from '@/lib/semantic-scholar/types';
 
 /**
  * GET /api/collections
@@ -112,55 +110,25 @@ export async function POST(request: NextRequest) {
     // For manual mode, use keywords directly
     const keywords = validatedData.keywords!; // Validation ensures this is present
 
-    // 4. Search papers (hybrid or regular)
-    let papers: Paper[] = [];
-    let usedHybridSearch = false;
-
+    // 4. Search papers using keyword search
     // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
     const paperLimit = process.env.TEST_PAPER_LIMIT
       ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
       : 100; // Default limit for final collection
 
-    if (validatedData.enableHybridSearch) {
-      console.log('[CollectionAPI] Using hybrid search with SPECTER2');
+    console.log('[CollectionAPI] Using keyword search');
 
-      try {
-        const hybridResult = await hybridSearchWithFallback({
-          keywords,
-          candidateLimit: validatedData.candidateLimit,
-          similarityThreshold: validatedData.similarityThreshold!,
-          finalLimit: paperLimit,
-          yearFrom: validatedData.filters?.yearFrom,
-          yearTo: validatedData.filters?.yearTo,
-          minCitations: validatedData.filters?.minCitations,
-          openAccessOnly: validatedData.filters?.openAccessOnly,
-        });
+    const semanticScholarClient = getSemanticScholarClient();
+    const searchResponse = await semanticScholarClient.searchPapers({
+      keywords,
+      yearFrom: validatedData.filters?.yearFrom,
+      yearTo: validatedData.filters?.yearTo,
+      minCitations: validatedData.filters?.minCitations,
+      openAccessOnly: validatedData.filters?.openAccessOnly,
+      limit: paperLimit,
+    });
 
-        papers = hybridResult.papers;
-        usedHybridSearch = hybridResult.usedHybridSearch;
-
-        if (!usedHybridSearch) {
-          console.warn('[CollectionAPI] Hybrid search failed, used fallback keyword search');
-        }
-      } catch (error) {
-        console.error('[CollectionAPI] Hybrid search error:', error);
-        throw new Error('Failed to search papers with hybrid search');
-      }
-    } else {
-      console.log('[CollectionAPI] Using regular keyword search');
-
-      const semanticScholarClient = getSemanticScholarClient();
-      const searchResponse = await semanticScholarClient.searchPapers({
-        keywords,
-        yearFrom: validatedData.filters?.yearFrom,
-        yearTo: validatedData.filters?.yearTo,
-        minCitations: validatedData.filters?.minCitations,
-        openAccessOnly: validatedData.filters?.openAccessOnly,
-        limit: paperLimit,
-      });
-
-      papers = searchResponse.data;
-    }
+    const papers = searchResponse.data;
 
     // 5. Handle empty search results
     if (papers.length === 0) {
@@ -183,8 +151,6 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       use_ai_assistant: validatedData.useAiAssistant || false,
       natural_language_query: validatedData.naturalLanguageQuery || null,
-      similarity_threshold: validatedData.similarityThreshold || null,
-      candidate_count: validatedData.enableHybridSearch ? validatedData.candidateLimit : null,
     });
 
     // 6. Upsert papers to database

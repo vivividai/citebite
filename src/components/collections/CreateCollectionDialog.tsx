@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Loader2, Lock, Unlock, Sparkles, BarChart3 } from 'lucide-react';
+import { Plus, Loader2, Lock, Unlock, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -26,7 +26,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { useCreateCollection } from '@/hooks/useCreateCollection';
 import { usePreviewCollection } from '@/hooks/usePreviewCollection';
@@ -52,28 +51,6 @@ export function CreateCollectionDialog() {
   const [naturalLanguageQuery, setNaturalLanguageQuery] = useState('');
   const [suggestedKeywords, setSuggestedKeywords] = useState('');
   const [isGeneratingKeywords, setIsGeneratingKeywords] = useState(false);
-  const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
-
-  // Similarity analysis state
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [similarityAnalysis, setSimilarityAnalysis] = useState<{
-    statistics: {
-      total: number;
-      min: number;
-      max: number;
-      mean: number;
-      median: number;
-      p25: number;
-      p75: number;
-      p90: number;
-      p95: number;
-    };
-    recommendations: {
-      conservative: number;
-      balanced: number;
-      inclusive: number;
-    };
-  } | null>(null);
 
   const { mutate: createCollection, isPending: isCreating } =
     useCreateCollection();
@@ -86,7 +63,6 @@ export function CreateCollectionDialog() {
     formState: { errors },
     reset,
     setValue,
-    watch,
   } = useForm<CreateCollectionSchema>({
     resolver: zodResolver(createCollectionSchema),
     defaultValues: {
@@ -94,9 +70,6 @@ export function CreateCollectionDialog() {
       keywords: '',
       useAiAssistant: false,
       naturalLanguageQuery: '',
-      enableHybridSearch: false,
-      similarityThreshold: 0.7,
-      candidateLimit: 1000,
       filters: {
         yearFrom: undefined,
         yearTo: undefined,
@@ -137,59 +110,12 @@ export function CreateCollectionDialog() {
     }
   };
 
-  const handleAnalyzeSimilarity = async () => {
-    if (!suggestedKeywords.trim()) {
-      toast.error('Please generate keywords first');
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      const candidateLimit = watch('candidateLimit') || 1000;
-      const filters = watch('filters') || {};
-
-      // Build payload, excluding undefined values
-      const payload: Record<string, any> = {
-        keywords: suggestedKeywords,
-        candidateLimit,
-      };
-
-      if (filters.yearFrom) payload.yearFrom = filters.yearFrom;
-      if (filters.yearTo) payload.yearTo = filters.yearTo;
-      if (filters.minCitations) payload.minCitations = filters.minCitations;
-      if (filters.openAccessOnly !== undefined) payload.openAccessOnly = filters.openAccessOnly;
-
-      const response = await fetch('/api/collections/ai/analyze-similarity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to analyze similarity');
-      }
-
-      const data = await response.json();
-      setSimilarityAnalysis(data.data);
-
-      toast.success('Similarity analysis complete! Choose a threshold below.');
-    } catch (error) {
-      console.error('Similarity analysis error:', error);
-      toast.error('Failed to analyze similarity. Please try again.');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   const onSubmit = (data: CreateCollectionSchema) => {
     // Prepare data for submission
     const submissionData = {
       ...data,
       useAiAssistant,
       naturalLanguageQuery: useAiAssistant ? naturalLanguageQuery : undefined,
-      enableHybridSearch: useAiAssistant, // Enable hybrid search for AI mode
-      similarityThreshold: useAiAssistant ? similarityThreshold : undefined,
       keywords: data.keywords,
     };
 
@@ -225,8 +151,6 @@ export function CreateCollectionDialog() {
         setUseAiAssistant(false);
         setNaturalLanguageQuery('');
         setSuggestedKeywords('');
-        setSimilarityThreshold(0.7);
-        setSimilarityAnalysis(null);
       },
     });
   };
@@ -244,7 +168,6 @@ export function CreateCollectionDialog() {
       setNaturalLanguageQuery('');
       setSuggestedKeywords('');
       setValue('keywords', '');
-      setSimilarityAnalysis(null);
     }
   };
 
@@ -295,7 +218,8 @@ export function CreateCollectionDialog() {
                 </Label>
               </div>
               <p className="text-xs text-muted-foreground">
-                Describe your research interest in natural language and let AI suggest keywords
+                Describe your research interest in natural language and let AI
+                suggest keywords
               </p>
             </div>
             <Switch
@@ -312,7 +236,8 @@ export function CreateCollectionDialog() {
               {/* Natural Language Query */}
               <div className="space-y-2">
                 <Label htmlFor="nlQuery">
-                  Describe Your Research Interest <span className="text-destructive">*</span>
+                  Describe Your Research Interest{' '}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Textarea
                   id="nlQuery"
@@ -335,7 +260,12 @@ export function CreateCollectionDialog() {
               <Button
                 type="button"
                 onClick={handleGenerateKeywords}
-                disabled={!naturalLanguageQuery.trim() || isGeneratingKeywords || isPreviewing || isCreating}
+                disabled={
+                  !naturalLanguageQuery.trim() ||
+                  isGeneratingKeywords ||
+                  isPreviewing ||
+                  isCreating
+                }
                 variant="secondary"
                 className="w-full"
               >
@@ -356,7 +286,8 @@ export function CreateCollectionDialog() {
               {suggestedKeywords && (
                 <div className="space-y-2">
                   <Label htmlFor="suggestedKeywords">
-                    Suggested Keywords (you can edit) <span className="text-destructive">*</span>
+                    Suggested Keywords (you can edit){' '}
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="suggestedKeywords"
@@ -374,150 +305,6 @@ export function CreateCollectionDialog() {
                   )}
                   <p className="text-xs text-muted-foreground">
                     Feel free to modify the keywords to better match your needs
-                  </p>
-                </div>
-              )}
-
-              {/* Analyze Similarity Distribution */}
-              {suggestedKeywords && !similarityAnalysis && (
-                <Button
-                  type="button"
-                  onClick={handleAnalyzeSimilarity}
-                  disabled={isAnalyzing || isPreviewing || isCreating}
-                  variant="outline"
-                  className="w-full"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Analyzing similarity distribution...
-                    </>
-                  ) : (
-                    <>
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Analyze Similarity Distribution
-                    </>
-                  )}
-                </Button>
-              )}
-
-              {/* Similarity Analysis Results */}
-              {similarityAnalysis && (
-                <div className="space-y-4 rounded-lg border p-4 bg-muted/50">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium">Similarity Distribution Analysis</h4>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSimilarityAnalysis(null)}
-                      disabled={isPreviewing || isCreating}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-
-                  {/* Statistics */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Total papers:</span>
-                      <span className="ml-2 font-medium">{similarityAnalysis.statistics.total}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Range:</span>
-                      <span className="ml-2 font-medium">
-                        {similarityAnalysis.statistics.min.toFixed(3)} - {similarityAnalysis.statistics.max.toFixed(3)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Mean:</span>
-                      <span className="ml-2 font-medium">{similarityAnalysis.statistics.mean.toFixed(3)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Median:</span>
-                      <span className="ml-2 font-medium">{similarityAnalysis.statistics.median.toFixed(3)}</span>
-                    </div>
-                  </div>
-
-                  {/* Recommendations */}
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Recommended Thresholds:</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <Button
-                        type="button"
-                        variant={similarityThreshold === similarityAnalysis.recommendations.conservative ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          setSimilarityThreshold(similarityAnalysis.recommendations.conservative);
-                          setValue('similarityThreshold', similarityAnalysis.recommendations.conservative);
-                        }}
-                        disabled={isPreviewing || isCreating}
-                        className="flex flex-col h-auto py-2"
-                      >
-                        <span className="text-xs font-semibold">High Precision</span>
-                        <span className="text-xs">{similarityAnalysis.recommendations.conservative.toFixed(2)}</span>
-                        <span className="text-[10px] text-muted-foreground">Top 25%</span>
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={similarityThreshold === similarityAnalysis.recommendations.balanced ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          setSimilarityThreshold(similarityAnalysis.recommendations.balanced);
-                          setValue('similarityThreshold', similarityAnalysis.recommendations.balanced);
-                        }}
-                        disabled={isPreviewing || isCreating}
-                        className="flex flex-col h-auto py-2"
-                      >
-                        <span className="text-xs font-semibold">Balanced</span>
-                        <span className="text-xs">{similarityAnalysis.recommendations.balanced.toFixed(2)}</span>
-                        <span className="text-[10px] text-muted-foreground">Top 50%</span>
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={similarityThreshold === similarityAnalysis.recommendations.inclusive ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          setSimilarityThreshold(similarityAnalysis.recommendations.inclusive);
-                          setValue('similarityThreshold', similarityAnalysis.recommendations.inclusive);
-                        }}
-                        disabled={isPreviewing || isCreating}
-                        className="flex flex-col h-auto py-2"
-                      >
-                        <span className="text-xs font-semibold">High Recall</span>
-                        <span className="text-xs">{similarityAnalysis.recommendations.inclusive.toFixed(2)}</span>
-                        <span className="text-[10px] text-muted-foreground">Top 75%</span>
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Similarity Threshold Slider */}
-              {suggestedKeywords && (
-                <div className="space-y-3 rounded-lg border p-4 bg-muted/50">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="similarity">
-                      Relevance Threshold: {similarityThreshold.toFixed(2)}
-                    </Label>
-                  </div>
-                  <Slider
-                    id="similarity"
-                    value={[similarityThreshold]}
-                    onValueChange={([value]) => {
-                      setSimilarityThreshold(value);
-                      setValue('similarityThreshold', value);
-                    }}
-                    min={0.5}
-                    max={0.9}
-                    step={0.05}
-                    disabled={isPreviewing || isCreating}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {similarityAnalysis
-                      ? 'You can fine-tune the threshold using the slider above.'
-                      : 'Higher threshold = More relevant papers (fewer results). Lower threshold = More variety (more results).'}
                   </p>
                 </div>
               )}
@@ -650,8 +437,6 @@ export function CreateCollectionDialog() {
                 setUseAiAssistant(false);
                 setNaturalLanguageQuery('');
                 setSuggestedKeywords('');
-                setSimilarityThreshold(0.7);
-                setSimilarityAnalysis(null);
               }}
               disabled={isPreviewing || isCreating}
             >
@@ -687,7 +472,7 @@ export function CreateCollectionDialog() {
               <div className="space-y-4">
                 <p>
                   Found <strong>{previewData?.totalPapers || 0}</strong> papers
-                  matching your search criteria{useAiAssistant && ' (using AI-powered semantic search)'}:
+                  matching your search criteria:
                 </p>
                 <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
                   <div className="flex items-center gap-2 text-sm">

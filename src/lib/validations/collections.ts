@@ -22,20 +22,6 @@ export const createCollectionSchema = z
     useAiAssistant: z.boolean().default(false),
     naturalLanguageQuery: z.string().trim().optional(),
 
-    // Hybrid search options
-    enableHybridSearch: z.boolean().default(false),
-    similarityThreshold: z
-      .number()
-      .min(0.5, 'Similarity threshold must be at least 0.5')
-      .max(0.9, 'Similarity threshold must be at most 0.9')
-      .optional(),
-    candidateLimit: z
-      .number()
-      .int()
-      .min(100, 'Candidate limit must be at least 100')
-      .max(1000, 'Candidate limit must be at most 1000')
-      .default(1000),
-
     filters: z
       .object({
         yearFrom: optionalNumber(
@@ -70,25 +56,15 @@ export const createCollectionSchema = z
     data => {
       // Either keywords or naturalLanguageQuery must be provided
       if (data.useAiAssistant) {
-        return !!data.naturalLanguageQuery && data.naturalLanguageQuery.length > 0;
+        return (
+          !!data.naturalLanguageQuery && data.naturalLanguageQuery.length > 0
+        );
       } else {
         return !!data.keywords && data.keywords.length > 0;
       }
     },
     {
       message: 'Either keywords or naturalLanguageQuery is required',
-    }
-  )
-  .refine(
-    data => {
-      // If hybrid search is enabled, similarity threshold is required
-      if (data.enableHybridSearch) {
-        return !!data.similarityThreshold;
-      }
-      return true;
-    },
-    {
-      message: 'Similarity threshold is required when hybrid search is enabled',
     }
   );
 

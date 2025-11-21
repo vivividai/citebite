@@ -99,7 +99,9 @@ export async function getUserCollections(
   // Get all collections for the user
   const { data: collections, error: collectionsError } = await supabase
     .from('collections')
-    .select('id, name, search_query, filters, created_at, file_search_store_id')
+    .select(
+      'id, name, search_query, filters, created_at, file_search_store_id, use_ai_assistant, natural_language_query, similarity_threshold, candidate_count'
+    )
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 

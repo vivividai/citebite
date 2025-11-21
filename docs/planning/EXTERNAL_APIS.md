@@ -1,8 +1,9 @@
 # CiteBite 외부 API 가이드
 
-**문서 버전**: v1.0
+**문서 버전**: v1.1
 **작성일**: 2025-11-15
-**목적**: Semantic Scholar API와 Gemini File Search API 통합을 위한 상세 가이드
+**최종 수정**: 2025-11-21 (SPECTER2 API 업데이트)
+**목적**: Semantic Scholar API, HuggingFace API, Gemini File Search API 통합을 위한 상세 가이드
 
 ---
 
@@ -126,7 +127,117 @@ function buildSemanticScholarQuery(params: {
 
 ---
 
-## 2. Gemini File Search API
+## 2. HuggingFace Inference API (SPECTER2)
+
+**역할**: 검색 쿼리를 768차원 임베딩 벡터로 변환하여 semantic similarity 계산
+
+**Last verified**: 2025-11-21
+
+### 2.1 주요 기능
+
+**SPECTER2 Model Inference**
+
+```
+Base URL: https://api-inference.huggingface.co/models/allenai/specter2
+```
+
+- **용도**: 논문 제목/초록 텍스트를 semantic embedding으로 변환
+- **모델**: SPECTER2 (SciBERT 기반, 학술 논문 특화)
+- **출력**: 768차원 벡터
+- **사용 시나리오**:
+  - Hybrid Search: 키워드 검색 후 semantic re-ranking
+  - Similarity Analysis: 유사도 분포 분석으로 threshold 추천
+
+### 2.2 API 토큰 발급
+
+1. HuggingFace 가입 (무료): https://huggingface.co/join
+2. Access Token 생성: https://huggingface.co/settings/tokens
+   - Token name: `citebite-specter2`
+   - Token type: **Read** (inference only)
+3. `.env.local`에 추가:
+   ```bash
+   HUGGINGFACE_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+
+### 2.3 Rate Limits 및 비용
+
+- **무료 Tier**: 30,000 requests/month
+- **Rate Limit**: ~10 requests/sec
+- **응답 속도**: 1-2초 (모델 로딩 시 첫 요청은 느릴 수 있음)
+- **업그레이드**: PRO ($9/월) → 무제한 요청
+
+### 2.4 API 사용 예시
+
+```typescript
+import axios from 'axios';
+
+const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/allenai/specter2';
+const HUGGINGFACE_API_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
+
+async function embedQuery(text: string): Promise<number[]> {
+  const response = await axios.post(
+    HUGGINGFACE_API_URL,
+    {
+      inputs: text,
+      options: {
+        wait_for_model: true, // 모델 로딩 대기
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${HUGGINGFACE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  return response.data; // number[] (768 dimensions)
+}
+```
+
+### 2.5 에러 핸들링
+
+- **401 Unauthorized**: API 토큰 유효하지 않음 → 토큰 재발급
+- **503 Service Unavailable**: 모델 로딩 중 → `wait_for_model: true` 사용 또는 재시도
+- **429 Too Many Requests**: Rate limit 초과 → 무료 tier 한도 확인
+
+### 2.6 SPECTER2 vs 기존 SPECTER API
+
+| 항목                  | SPECTER2 (HuggingFace)                  | Legacy SPECTER API                               |
+| --------------------- | --------------------------------------- | ------------------------------------------------ |
+| API 엔드포인트        | api-inference.huggingface.co            | model-apis.semanticscholar.org                   |
+| 상태                  | ✅ 활성화 (2025년 현재)                 | ❌ 작동 불가 (2021년 이후 업데이트 없음)         |
+| 무료 tier             | ✅ 30,000 requests/month                | ❓ 불명 (문서화 안됨)                            |
+| 인증                  | ✅ Read token 필요                      | ❓ 불명                                           |
+| Rate limit            | ~10 req/sec                             | 불명                                             |
+| 응답 속도             | 1-2초                                   | N/A                                              |
+| 문서화                | ✅ 공식 문서 존재                       | ❌ GitHub README만 존재                          |
+| **추천 여부**         | ✅ **강력 추천**                        | ❌ 사용 불가                                     |
+
+### 2.7 대안: Semantic Scholar API의 `embedding.specter_v2`
+
+Semantic Scholar API는 **논문 임베딩만 제공** (쿼리 임베딩은 불가):
+
+```typescript
+GET https://api.semanticscholar.org/graph/v1/paper/batch
+fields=paperId,embedding.specter_v2
+
+// 응답:
+{
+  "paperId": "abc123",
+  "embedding": {
+    "specter_v2": [0.123, -0.456, ...] // 768 dimensions
+  }
+}
+```
+
+**사용 방법**:
+- Hybrid Search의 **Step 3: 논문 임베딩 가져오기**에서 사용
+- HuggingFace API로 쿼리 임베딩 생성 + Semantic Scholar API로 논문 임베딩 가져오기
+
+---
+
+## 3. Gemini File Search API
 
 ⚠️ **CRITICAL: This section may be outdated**
 

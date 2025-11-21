@@ -165,3 +165,46 @@ export async function pdfExists(
 
   return data.length > 0;
 }
+
+/**
+ * Delete all PDFs for a collection
+ *
+ * @param collectionId - Collection UUID
+ * @returns Number of files deleted
+ * @throws Error if deletion fails
+ */
+export async function deleteCollectionPdfs(
+  collectionId: string
+): Promise<number> {
+  const supabase = createAdminSupabaseClient();
+
+  // List all files in the collection folder
+  const { data: files, error: listError } = await supabase.storage
+    .from(BUCKET_NAME)
+    .list(collectionId);
+
+  if (listError) {
+    throw new Error(`Failed to list PDFs for collection: ${listError.message}`);
+  }
+
+  // If no files, return 0
+  if (!files || files.length === 0) {
+    return 0;
+  }
+
+  // Build full paths for all files
+  const filePaths = files.map(file => `${collectionId}/${file.name}`);
+
+  // Delete all files at once
+  const { error: deleteError } = await supabase.storage
+    .from(BUCKET_NAME)
+    .remove(filePaths);
+
+  if (deleteError) {
+    throw new Error(
+      `Failed to delete PDFs for collection: ${deleteError.message}`
+    );
+  }
+
+  return files.length;
+}

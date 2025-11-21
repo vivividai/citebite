@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, TablesInsert } from '@/types/database.types';
+import { deleteCollectionPdfs } from '@/lib/storage/supabaseStorage';
 
 type CollectionInsert = TablesInsert<'collections'>;
 
@@ -223,6 +224,7 @@ export async function getCollectionById(
 /**
  * Delete a collection by ID with ownership check
  * This will cascade delete all related data:
+ * - PDFs from Supabase Storage
  * - collection_papers entries
  * - conversations and messages
  */
@@ -233,6 +235,21 @@ export async function deleteCollection(
 ) {
   // First verify ownership
   await getCollectionWithOwnership(supabase, collectionId, userId);
+
+  // Delete all PDFs from Supabase Storage
+  try {
+    const deletedCount = await deleteCollectionPdfs(collectionId);
+    console.log(
+      `Deleted ${deletedCount} PDF files for collection ${collectionId}`
+    );
+  } catch (error) {
+    // Log error but don't fail the entire deletion
+    // Storage cleanup failure shouldn't prevent collection deletion
+    console.error(
+      `Failed to delete PDFs for collection ${collectionId}:`,
+      error
+    );
+  }
 
   // Delete the collection (CASCADE will handle related data)
   const { error } = await supabase

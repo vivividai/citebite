@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Lock, Unlock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,16 +13,40 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { useCreateCollection } from '@/hooks/useCreateCollection';
+import { usePreviewCollection } from '@/hooks/usePreviewCollection';
 import {
   createCollectionSchema,
   type CreateCollectionSchema,
 } from '@/lib/validations/collections';
+import toast from 'react-hot-toast';
 
 export function CreateCollectionDialog() {
   const [open, setOpen] = useState(false);
-  const { mutate: createCollection, isPending } = useCreateCollection();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    totalPapers: number;
+    openAccessPapers: number;
+    paywalledPapers: number;
+  } | null>(null);
+  const [pendingFormData, setPendingFormData] =
+    useState<CreateCollectionSchema | null>(null);
+
+  const { mutate: createCollection, isPending: isCreating } =
+    useCreateCollection();
+  const { mutate: previewCollection, isPending: isPreviewing } =
+    usePreviewCollection();
 
   const {
     register,
@@ -44,12 +68,43 @@ export function CreateCollectionDialog() {
   });
 
   const onSubmit = (data: CreateCollectionSchema) => {
-    createCollection(data, {
-      onSuccess: () => {
-        setOpen(false);
-        reset();
+    // First, preview the collection
+    previewCollection(data, {
+      onSuccess: response => {
+        // Store form data and preview stats
+        setPendingFormData(data);
+        setPreviewData({
+          totalPapers: response.data.totalPapers,
+          openAccessPapers: response.data.openAccessPapers,
+          paywalledPapers: response.data.paywalledPapers,
+        });
+        // Show confirmation dialog
+        setConfirmOpen(true);
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || 'Failed to preview collection');
       },
     });
+  };
+
+  const handleConfirmCreate = () => {
+    if (!pendingFormData) return;
+
+    createCollection(pendingFormData, {
+      onSuccess: () => {
+        setConfirmOpen(false);
+        setOpen(false);
+        reset();
+        setPendingFormData(null);
+        setPreviewData(null);
+      },
+    });
+  };
+
+  const handleCancelCreate = () => {
+    setConfirmOpen(false);
+    setPendingFormData(null);
+    setPreviewData(null);
   };
 
   return (
@@ -82,7 +137,7 @@ export function CreateCollectionDialog() {
               id="name"
               placeholder="e.g., Quantum Computing Papers"
               {...register('name')}
-              disabled={isPending}
+              disabled={isPreviewing || isCreating}
             />
             {errors.name && (
               <p className="text-sm text-destructive">{errors.name.message}</p>
@@ -101,7 +156,7 @@ export function CreateCollectionDialog() {
               id="keywords"
               placeholder="e.g., quantum computing, deep learning"
               {...register('keywords')}
-              disabled={isPending}
+              disabled={isPreviewing || isCreating}
             />
             {errors.keywords && (
               <p className="text-sm text-destructive">
@@ -131,7 +186,7 @@ export function CreateCollectionDialog() {
                   type="number"
                   placeholder="e.g., 2020"
                   {...register('filters.yearFrom', { valueAsNumber: true })}
-                  disabled={isPending}
+                  disabled={isPreviewing || isCreating}
                 />
                 {errors.filters?.yearFrom && (
                   <p className="text-sm text-destructive">
@@ -152,7 +207,7 @@ export function CreateCollectionDialog() {
                   type="number"
                   placeholder="e.g., 2024"
                   {...register('filters.yearTo', { valueAsNumber: true })}
-                  disabled={isPending}
+                  disabled={isPreviewing || isCreating}
                 />
                 {errors.filters?.yearTo && (
                   <p className="text-sm text-destructive">
@@ -175,7 +230,7 @@ export function CreateCollectionDialog() {
                 type="number"
                 placeholder="e.g., 10"
                 {...register('filters.minCitations', { valueAsNumber: true })}
-                disabled={isPending}
+                disabled={isPreviewing || isCreating}
               />
               {errors.filters?.minCitations && (
                 <p className="text-sm text-destructive">
@@ -191,7 +246,7 @@ export function CreateCollectionDialog() {
                 type="checkbox"
                 className="h-4 w-4 rounded border-gray-300"
                 {...register('filters.openAccessOnly')}
-                disabled={isPending}
+                disabled={isPreviewing || isCreating}
               />
               <label
                 htmlFor="openAccessOnly"
@@ -211,15 +266,15 @@ export function CreateCollectionDialog() {
                 setOpen(false);
                 reset();
               }}
-              disabled={isPending}
+              disabled={isPreviewing || isCreating}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? (
+            <Button type="submit" disabled={isPreviewing || isCreating}>
+              {isPreviewing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
+                  Checking papers...
                 </>
               ) : (
                 'Create Collection'
@@ -228,6 +283,63 @@ export function CreateCollectionDialog() {
           </div>
         </form>
       </DialogContent>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create Collection?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p>
+                  Found <strong>{previewData?.totalPapers || 0}</strong> papers
+                  matching your search criteria:
+                </p>
+                <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Unlock className="h-4 w-4 text-green-600" />
+                    <span>
+                      <strong>{previewData?.openAccessPapers || 0}</strong> Open
+                      Access papers (PDFs will be auto-downloaded)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Lock className="h-4 w-4 text-amber-600" />
+                    <span>
+                      <strong>{previewData?.paywalledPapers || 0}</strong>{' '}
+                      Paywalled papers (PDFs must be manually uploaded)
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm">
+                  Do you want to create this collection?
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleCancelCreate}
+              disabled={isCreating}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmCreate}
+              disabled={isCreating}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Collection'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

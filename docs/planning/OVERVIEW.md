@@ -330,10 +330,11 @@ async function updateCollection(req: Request) {
   const { id } = req.params;
 
   // 1. 컬렉션 조회
-  const collection = await prisma.collection.findUnique({
-    where: { id },
-    include: { papers: true },
-  });
+  const { data: collection } = await supabase
+    .from('collections')
+    .select('*, papers(*)')
+    .eq('id', id)
+    .single();
 
   // 2. 마지막 업데이트 이후 논문 검색
   const newPapers = await semanticScholarService.search({
@@ -356,19 +357,19 @@ async function addPapersToCollection(req: Request) {
   const { paperIds } = req.body; // 사용자가 선택한 논문들
 
   // 1. DB 추가
-  await prisma.collection.update({
-    where: { id },
-    data: {
-      papers: {
-        create: paperIds.map(paperId => ({
-          paperId,
-          // ... 메타데이터
-          vectorStatus: 'pending',
-        })),
-      },
-      lastUpdatedAt: new Date(),
-    },
-  });
+  const papersToInsert = paperIds.map(paperId => ({
+    collection_id: id,
+    paper_id: paperId,
+    // ... 메타데이터
+    vector_status: 'pending',
+  }));
+
+  await supabase.from('papers').insert(papersToInsert);
+
+  await supabase
+    .from('collections')
+    .update({ last_updated_at: new Date().toISOString() })
+    .eq('id', id);
 
   // 2. PDF 다운로드 큐잉
   await pdfDownloadQueue.addBulk(/* ... */);
@@ -402,13 +403,19 @@ async function sendMessage(req: Request) {
   const { content } = req.body; // 사용자 질문
 
   // 1. 대화 조회
-  const conversation = await prisma.conversation.findUnique({
-    where: { id },
-    include: {
-      messages: { orderBy: { timestamp: 'desc' }, take: 10 },
-      collection: true,
-    },
-  });
+  const { data: conversation } = await supabase
+    .from('conversations')
+    .select(
+      `
+      *,
+      messages:messages!inner(*)
+        .order(timestamp.desc)
+        .limit(10),
+      collection:collections(*)
+    `
+    )
+    .eq('id', id)
+    .single();
 
   // 2. 대화 기록 구성
   const history = conversation.messages.reverse().map(m => ({
@@ -427,31 +434,34 @@ async function sendMessage(req: Request) {
   const citedPaperIds = response.groundingChunks.map(
     chunk => chunk.metadata.paper_id
   );
-  const citedPapers = await prisma.paper.findMany({
-    where: { paperId: { in: citedPaperIds } },
-    select: { paperId: true, title: true, authors: true, year: true },
-  });
+  const { data: citedPapers } = await supabase
+    .from('papers')
+    .select('paper_id, title, authors, year')
+    .in('paper_id', citedPaperIds);
 
   // 5. 메시지 저장
-  await prisma.conversation.update({
-    where: { id },
-    data: {
-      messages: {
-        create: [
-          { role: 'user', content, timestamp: new Date() },
-          {
-            role: 'assistant',
-            content: response.answer,
-            timestamp: new Date(),
-            citedPapers: {
-              connect: citedPaperIds.map(id => ({ paperId: id })),
-            },
-          },
-        ],
-      },
-      lastMessageAt: new Date(),
+  const messagesToInsert = [
+    {
+      conversation_id: id,
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
     },
-  });
+    {
+      conversation_id: id,
+      role: 'assistant',
+      content: response.answer,
+      timestamp: new Date().toISOString(),
+      cited_paper_ids: citedPaperIds,
+    },
+  ];
+
+  await supabase.from('messages').insert(messagesToInsert);
+
+  await supabase
+    .from('conversations')
+    .update({ last_message_at: new Date().toISOString() })
+    .eq('id', id);
 
   // 6. 제안 질문 생성
   const suggestedQuestions = await generateSuggestedQuestions(
@@ -496,10 +506,11 @@ async function sendMessage(req: Request) {
 // Background Job: generate-insights
 async function generateInsights(collectionId: string) {
   // 1. 컬렉션 논문 조회
-  const papers = await prisma.paper.findMany({
-    where: { collections: { some: { id: collectionId } } },
-    orderBy: { citationCount: 'desc' },
-  });
+  const { data: papers } = await supabase
+    .from('papers')
+    .select('*')
+    .eq('collection_id', collectionId)
+    .order('citation_count', { ascending: false });
 
   // 2. Top 논문 (간단)
   const topPapers = papers.slice(0, 5).map(p => ({
@@ -537,13 +548,13 @@ JSON 형식:
   const analysis = JSON.parse(response.text);
 
   // 4. 인사이트 저장
-  await prisma.collection.update({
-    where: { id: collectionId },
-    data: {
-      insightSummary: {
+  await supabase
+    .from('collections')
+    .update({
+      insight_summary: {
         topPapers,
         ...analysis,
-        generatedAt: new Date(),
+        generatedAt: new Date().toISOString(),
       },
     },
   });
@@ -570,41 +581,45 @@ async function copyCollection(req: Request) {
   const { id } = req.params; // 원본 컬렉션 ID
 
   // 1. 원본 조회
-  const original = await prisma.collection.findUnique({
-    where: { id, isPublic: true },
-    include: { papers: true },
-  });
+  const { data: original } = await supabase
+    .from('collections')
+    .select('*, papers(*)')
+    .eq('id', id)
+    .eq('is_public', true)
+    .single();
 
   if (!original) throw new Error('Not found or not public');
 
-  // 2. 새 컬렉션 생성 (트랜잭션)
-  const copied = await prisma.$transaction(async tx => {
-    const newCollection = await tx.collection.create({
-      data: {
-        userId: req.user.id,
-        name: `${original.name} (복사본)`,
-        searchQuery: original.searchQuery,
-        filters: original.filters,
-        isPublic: false,
-        papers: {
-          connect: original.papers.map(p => ({ paperId: p.paperId })),
-        },
-        // 중요: 동일한 File Search Store 참조
-        fileSearchStoreId: original.fileSearchStoreId,
-        insightSummary: original.insightSummary,
-      },
-    });
+  // 2. 새 컬렉션 생성
+  const { data: newCollection } = await supabase
+    .from('collections')
+    .insert({
+      user_id: req.user.id,
+      name: `${original.name} (복사본)`,
+      search_query: original.search_query,
+      filters: original.filters,
+      is_public: false,
+      // 중요: 동일한 File Search Store 참조
+      file_search_store_id: original.file_search_store_id,
+      insight_summary: original.insight_summary,
+    })
+    .select()
+    .single();
 
-    // 복사 횟수 증가
-    await tx.collection.update({
-      where: { id: original.id },
-      data: { copyCount: { increment: 1 } },
-    });
+  // 3. 논문 연결 (junction table)
+  const paperLinks = original.papers.map(p => ({
+    collection_id: newCollection.id,
+    paper_id: p.paper_id,
+  }));
+  await supabase.from('collection_papers').insert(paperLinks);
 
-    return newCollection;
-  });
+  // 4. 복사 횟수 증가
+  await supabase
+    .from('collections')
+    .update({ copy_count: (original.copy_count || 0) + 1 })
+    .eq('id', original.id);
 
-  return { collection: copied };
+  return { collection: newCollection };
 }
 ```
 

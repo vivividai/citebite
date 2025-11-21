@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { test, expect } from '@playwright/test';
+import { cleanupTestData } from './helpers/test-utils';
+import { loginTestUser } from './helpers/auth';
 
 /**
  * E2E Test Suite: Chat Functionality
@@ -10,12 +12,25 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Chat Functionality', () => {
+  // Track created resources for cleanup
+  const createdResourceIds: string[] = [];
+
+  // Clean up after all tests in this suite
+  test.afterAll(async () => {
+    for (const resourceId of createdResourceIds) {
+      await cleanupTestData(resourceId);
+    }
+  });
+
   // Helper function to navigate to Chat tab
   const navigateToChat = async (page, collectionId = 'test-collection-id') => {
-    await page.goto(`http://localhost:3000/collections/${collectionId}`);
-    await page.waitForLoadState('networkidle');
+    // Ensure user is logged in first
+    await loginTestUser(page);
 
-    // Click Chat tab
+    await page.goto(`http://localhost:3000/collections/${collectionId}`);
+    await page.waitForLoadState('load');
+
+    // Click Chat tab if visible
     const chatTab = page.getByRole('tab', { name: /chat/i }).first();
     if (await chatTab.isVisible().catch(() => false)) {
       await chatTab.click();
@@ -24,7 +39,7 @@ test.describe('Chat Functionality', () => {
   };
 
   test.describe('5.1 Chat Interface Layout', () => {
-    test.skip('should display chat interface', async ({ page: _page }) => {
+    test('should display chat interface', async ({ page }) => {
       await navigateToChat(page);
 
       // Should show chat UI
@@ -40,7 +55,7 @@ test.describe('Chat Functionality', () => {
       expect(hasInterface).toBe(true);
     });
 
-    test.skip('should have message input field', async ({ page: _page }) => {
+    test('should have message input field', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page
@@ -52,7 +67,7 @@ test.describe('Chat Functionality', () => {
       await expect(messageInput).toBeEnabled();
     });
 
-    test.skip('should have send button', async ({ page: _page }) => {
+    test('should have send button', async ({ page }) => {
       await navigateToChat(page);
 
       const sendButton = page
@@ -61,9 +76,7 @@ test.describe('Chat Functionality', () => {
       await expect(sendButton).toBeVisible();
     });
 
-    test.skip('should show empty state for new conversation', async ({
-      page,
-    }) => {
+    test('should show empty state for new conversation', async ({ page }) => {
       await navigateToChat(page);
 
       // New conversation should show welcome message or suggested questions
@@ -86,9 +99,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.2 Send Message - Happy Path', () => {
-    test.skip('should send message and receive AI response', async ({
-      page,
-    }) => {
+    test('should send message and receive AI response', async ({ page }) => {
       // This test requires:
       // 1. Auth
       // 2. Collection with indexed papers
@@ -136,9 +147,7 @@ test.describe('Chat Functionality', () => {
       console.log('AI response received:', responseText?.substring(0, 100));
     });
 
-    test.skip('should clear input after sending message', async ({
-      page: _page,
-    }) => {
+    test('should clear input after sending message', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -154,9 +163,7 @@ test.describe('Chat Functionality', () => {
       expect(inputValue).toBe('');
     });
 
-    test.skip('should auto-scroll to latest message', async ({
-      page: _page,
-    }) => {
+    test('should auto-scroll to latest message', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -182,9 +189,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.3 Message Input Validation', () => {
-    test.skip('should disable send button for empty input', async ({
-      page,
-    }) => {
+    test('should disable send button for empty input', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -198,9 +203,7 @@ test.describe('Chat Functionality', () => {
       expect(isDisabled).toBe(true);
     });
 
-    test.skip('should enable send button when text is entered', async ({
-      page,
-    }) => {
+    test('should enable send button when text is entered', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -213,9 +216,7 @@ test.describe('Chat Functionality', () => {
       await expect(sendButton).toBeEnabled();
     });
 
-    test.skip('should reject whitespace-only messages', async ({
-      page: _page,
-    }) => {
+    test('should reject whitespace-only messages', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -229,9 +230,7 @@ test.describe('Chat Functionality', () => {
       expect(isDisabled).toBe(true);
     });
 
-    test.skip('should support Cmd+Enter keyboard shortcut', async ({
-      page,
-    }) => {
+    test('should support Cmd+Enter keyboard shortcut', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -251,9 +250,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.4 View Conversation History', () => {
-    test.skip('should load existing conversation messages', async ({
-      page,
-    }) => {
+    test('should load existing conversation messages', async ({ page }) => {
       // Requires conversation with existing messages
       await navigateToChat(page);
 
@@ -277,7 +274,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should distinguish user and AI messages visually', async ({
+    test('should distinguish user and AI messages visually', async ({
       page,
     }) => {
       await navigateToChat(page);
@@ -305,7 +302,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should show message timestamps', async ({ page: _page }) => {
+    test('should show message timestamps', async ({ page }) => {
       await navigateToChat(page);
 
       const messages = page.locator('[data-testid="message"]');
@@ -326,9 +323,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.5 Citations Display', () => {
-    test.skip('should display citations with AI responses', async ({
-      page,
-    }) => {
+    test('should display citations with AI responses', async ({ page }) => {
       await navigateToChat(page);
 
       // Send message that should generate citations
@@ -361,9 +356,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should display paper title in citations', async ({
-      page: _page,
-    }) => {
+    test('should display paper title in citations', async ({ page }) => {
       await navigateToChat(page);
 
       const citations = page.locator('[data-testid="citation"]');
@@ -383,9 +376,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should display authors and year in citations', async ({
-      page,
-    }) => {
+    test('should display authors and year in citations', async ({ page }) => {
       await navigateToChat(page);
 
       const citations = page.locator('[data-testid="citation"]');
@@ -405,9 +396,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should link citations to papers in collection', async ({
-      page,
-    }) => {
+    test('should link citations to papers in collection', async ({ page }) => {
       await navigateToChat(page);
 
       const citations = page.locator('[data-testid="citation"]');
@@ -437,7 +426,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should handle multiple citations in one response', async ({
+    test('should handle multiple citations in one response', async ({
       page,
     }) => {
       await navigateToChat(page);
@@ -457,7 +446,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.6 Markdown Rendering', () => {
-    test.skip('should render bold text', async ({ page: _page }) => {
+    test('should render bold text', async ({ page }) => {
       // This test assumes AI response includes markdown
       await navigateToChat(page);
 
@@ -475,7 +464,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should render lists correctly', async ({ page: _page }) => {
+    test('should render lists correctly', async ({ page }) => {
       await navigateToChat(page);
 
       const aiMessages = page.locator('[data-testid="assistant-message"]');
@@ -492,7 +481,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should render code blocks with syntax highlighting', async ({
+    test('should render code blocks with syntax highlighting', async ({
       page,
     }) => {
       await navigateToChat(page);
@@ -518,7 +507,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should render inline code', async ({ page: _page }) => {
+    test('should render inline code', async ({ page }) => {
       await navigateToChat(page);
 
       const aiMessages = page.locator('[data-testid="assistant-message"]');
@@ -535,7 +524,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should render links as clickable', async ({ page: _page }) => {
+    test('should render links as clickable', async ({ page }) => {
       await navigateToChat(page);
 
       const aiMessages = page.locator('[data-testid="assistant-message"]');
@@ -560,9 +549,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.7 Conversation Context', () => {
-    test.skip('should maintain context across messages', async ({
-      page: _page,
-    }) => {
+    test('should maintain context across messages', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -589,9 +576,7 @@ test.describe('Chat Functionality', () => {
       console.log('Follow-up response:', responseText?.substring(0, 100));
     });
 
-    test.skip('should include recent messages in context', async ({
-      page: _page,
-    }) => {
+    test('should include recent messages in context', async ({ page }) => {
       // The API should send last 10 messages as context
       // This is more of an API test, but we can verify behavior
 
@@ -624,9 +609,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('5.8 Error Handling', () => {
-    test.skip('should show error message on API failure', async ({
-      page: _page,
-    }) => {
+    test('should show error message on API failure', async ({ page }) => {
       // This test would require mocking API failure
       // For now, just check error UI exists
 
@@ -641,9 +624,7 @@ test.describe('Chat Functionality', () => {
       console.log('Error UI patterns should be implemented for chat failures');
     });
 
-    test.skip('should show retry button for failed messages', async ({
-      page,
-    }) => {
+    test('should show retry button for failed messages', async ({ page }) => {
       // Requires triggering a failure
       await navigateToChat(page);
 
@@ -660,16 +641,14 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should handle network timeout gracefully', async ({
-      page: _page,
-    }) => {
+    test('should handle network timeout gracefully', async ({ page }) => {
       // Would require network simulation
       console.log('Timeout handling should be implemented');
     });
   });
 
   test.describe('5.9 Conversation Management (Future)', () => {
-    test.skip('should show conversation selector', async ({ page: _page }) => {
+    test('should show conversation selector', async ({ page }) => {
       // Phase 4 feature
       await navigateToChat(page);
 
@@ -689,7 +668,7 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should create new conversation', async ({ page: _page }) => {
+    test('should create new conversation', async ({ page }) => {
       // Phase 4 feature
       await navigateToChat(page);
 
@@ -712,18 +691,14 @@ test.describe('Chat Functionality', () => {
       }
     });
 
-    test.skip('should switch between conversations', async ({
-      page: _page,
-    }) => {
+    test('should switch between conversations', async ({ page }) => {
       // Phase 4 feature
       console.log('Conversation switching to be implemented in Phase 4');
     });
   });
 
   test.describe('5.10 Performance', () => {
-    test.skip('should respond within acceptable time', async ({
-      page: _page,
-    }) => {
+    test('should respond within acceptable time', async ({ page }) => {
       await navigateToChat(page);
 
       const messageInput = page.locator('textarea').first();
@@ -747,9 +722,7 @@ test.describe('Chat Functionality', () => {
       expect(responseTime).toBeLessThan(30000);
     });
 
-    test.skip('should handle rapid message sending', async ({
-      page: _page,
-    }) => {
+    test('should handle rapid message sending', async ({ page }) => {
       await navigateToChat(page);
 
       // Send multiple messages quickly

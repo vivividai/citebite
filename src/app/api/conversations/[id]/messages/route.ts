@@ -14,7 +14,6 @@ import {
 } from '@/lib/db/messages';
 import { updateLastMessageAt } from '@/lib/db/conversations';
 import { queryWithFileSearch } from '@/lib/gemini/chat';
-import { validateAndEnrichCitations } from '@/lib/citations/validator';
 
 /**
  * GET /api/conversations/[id]/messages
@@ -184,12 +183,10 @@ export async function POST(
       );
     }
 
-    // 5. Get all papers in the collection (for citation validation)
+    // 5. Verify collection has papers
     const collectionPapers = await getCollectionPapers(supabase, collection.id);
 
-    const collectionPaperIds = collectionPapers.map(p => p.paper_id);
-
-    if (collectionPaperIds.length === 0) {
+    if (collectionPapers.length === 0) {
       return NextResponse.json(
         {
           error: 'Collection has no papers',
@@ -223,8 +220,7 @@ export async function POST(
       aiResponse = await queryWithFileSearch(
         collection.file_search_store_id,
         userMessage,
-        formattedHistory,
-        collectionPaperIds
+        formattedHistory
       );
     } catch (error) {
       console.error('[API] Gemini query error:', error);
@@ -240,21 +236,20 @@ export async function POST(
       );
     }
 
-    // 8. Validate and enrich citations
-    console.log(`[API] Validating ${aiResponse.citedPapers.length} citations`);
+    // 8. Prepare citation data with grounding metadata
+    console.log(
+      `[API] Found ${aiResponse.groundingChunks.length} grounding chunks, ${aiResponse.groundingSupports.length} supports`
+    );
 
-    let validatedCitations;
-    try {
-      validatedCitations = await validateAndEnrichCitations(
-        supabase,
-        aiResponse.citedPapers,
-        collection.id
-      );
-    } catch (error) {
-      console.error('[API] Citation validation error:', error);
-      // Continue with unvalidated citations rather than failing
-      validatedCitations = aiResponse.citedPapers;
-    }
+    const citationData =
+      aiResponse.groundingChunks.length > 0
+        ? [
+            {
+              chunks: aiResponse.groundingChunks,
+              supports: aiResponse.groundingSupports,
+            },
+          ]
+        : undefined;
 
     // 9. Save user message
     const userMessageRecord = await createMessage(
@@ -264,13 +259,13 @@ export async function POST(
       userMessage
     );
 
-    // 10. Save AI response with citations
+    // 10. Save AI response with grounding data
     const assistantMessageRecord = await createMessage(
       supabase,
       conversationId,
       'assistant',
       aiResponse.answer,
-      validatedCitations.length > 0 ? validatedCitations : undefined
+      citationData
     );
 
     // 11. Update conversation's last_message_at timestamp
@@ -291,7 +286,7 @@ export async function POST(
             id: assistantMessageRecord.id,
             role: assistantMessageRecord.role,
             content: assistantMessageRecord.content,
-            cited_papers: validatedCitations,
+            cited_papers: citationData,
             timestamp: assistantMessageRecord.timestamp,
           },
         },

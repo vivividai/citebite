@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { test, expect } from '@playwright/test';
+import { cleanupTestData } from './helpers/test-utils';
 
 /**
  * E2E Test Suite: Authentication Flow
@@ -10,6 +11,15 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Authentication Flow', () => {
+  // Track created resources for cleanup (if any)
+  const createdResourceIds: string[] = [];
+
+  // Clean up after all tests in this suite
+  test.afterAll(async () => {
+    for (const resourceId of createdResourceIds) {
+      await cleanupTestData(resourceId);
+    }
+  });
   test.describe('2.1 Login Page', () => {
     test('should display login page with authentication options', async ({
       page,
@@ -45,7 +55,7 @@ test.describe('Authentication Flow', () => {
       expect(foundLoginElement).toBe(true);
     });
 
-    test('should have Google OAuth button', async ({ page: _page }) => {
+    test('should have Google OAuth button', async ({ page }) => {
       await page.goto('http://localhost:3000/login');
 
       // Look for Google OAuth button
@@ -74,7 +84,8 @@ test.describe('Authentication Flow', () => {
       await page.goto('http://localhost:3000/collections');
 
       // Should redirect to login or show unauthenticated state
-      await page.waitForLoadState('networkidle');
+      // Use 'load' instead of 'networkidle' to be less strict
+      await page.waitForLoadState('load');
 
       const currentUrl = page.url();
 
@@ -96,7 +107,8 @@ test.describe('Authentication Flow', () => {
       // Try to access a collection detail page (with dummy ID)
       await page.goto('http://localhost:3000/collections/test-collection-id');
 
-      await page.waitForLoadState('networkidle');
+      // Use 'load' instead of 'networkidle' to be less strict
+      await page.waitForLoadState('load');
 
       const currentUrl = page.url();
 
@@ -177,7 +189,7 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('2.5 Logout Flow (Requires Auth Setup)', () => {
-    test.skip('should successfully log out user', async ({ page: _page }) => {
+    test.skip('should successfully log out user', async ({ page }) => {
       // This test requires actual authentication
       // Skip for now
       // Steps:
@@ -189,9 +201,7 @@ test.describe('Authentication Flow', () => {
       // 6. Verify cannot access protected routes
     });
 
-    test.skip('should clear session data on logout', async ({
-      page: _page,
-    }) => {
+    test.skip('should clear session data on logout', async ({ page }) => {
       // Skip - requires auth setup
     });
   });
@@ -211,9 +221,7 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('2.7 Authentication Error Handling', () => {
-    test('should handle authentication errors gracefully', async ({
-      page: _page,
-    }) => {
+    test('should handle authentication errors gracefully', async ({ page }) => {
       // Try to access protected API route directly
       const response = await page.request.get(
         'http://localhost:3000/api/collections'
@@ -261,7 +269,7 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('2.9 Session Timeout (Future)', () => {
-    test.skip('should handle session expiration', async ({ page: _page }) => {
+    test.skip('should handle session expiration', async ({ page }) => {
       // Future test for session timeout handling
       // Steps:
       // 1. Log in
@@ -272,9 +280,7 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('2.10 Security Checks', () => {
-    test('should have secure authentication headers', async ({
-      page: _page,
-    }) => {
+    test('should have secure authentication headers', async ({ page }) => {
       const response = await page.goto('http://localhost:3000/login');
 
       // Check for security headers (basic check)
@@ -288,9 +294,7 @@ test.describe('Authentication Flow', () => {
       }
     });
 
-    test('should not expose sensitive data in client', async ({
-      page: _page,
-    }) => {
+    test('should not expose sensitive data in client', async ({ page }) => {
       await page.goto('http://localhost:3000');
 
       // Check that sensitive environment variables are not exposed
@@ -311,9 +315,7 @@ test.describe('Authentication Flow', () => {
       expect(exposedSecrets).toHaveLength(0);
     });
 
-    test('should use HTTPS in production (informational)', async ({
-      page: _page,
-    }) => {
+    test('should use HTTPS in production (informational)', async ({ page }) => {
       await page.goto('http://localhost:3000');
 
       const isLocalhost =

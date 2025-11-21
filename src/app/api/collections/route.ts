@@ -107,13 +107,19 @@ export async function POST(request: NextRequest) {
 
     // 3. Search papers via Semantic Scholar
     const semanticScholarClient = getSemanticScholarClient();
+
+    // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
+    const paperLimit = process.env.TEST_PAPER_LIMIT
+      ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
+      : 100; // Default limit for initial collection
+
     const searchResponse = await semanticScholarClient.searchPapers({
       keywords: validatedData.keywords,
       yearFrom: validatedData.filters?.yearFrom,
       yearTo: validatedData.filters?.yearTo,
       minCitations: validatedData.filters?.minCitations,
       openAccessOnly: validatedData.filters?.openAccessOnly,
-      limit: 100, // Default limit for initial collection
+      limit: paperLimit,
     });
 
     // 4. Handle empty search results

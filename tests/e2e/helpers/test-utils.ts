@@ -18,15 +18,20 @@ export const ROUTES = {
 };
 
 export const TEST_USER = {
-  EMAIL: 'test@citebite.com',
+  EMAIL: 'test@example.com',
+  PASSWORD: 'testpassword123',
+  ID: '00000000-0000-0000-0000-000000000001',
   NAME: 'Test User',
 };
 
 export const MOCK_COLLECTION = {
-  KEYWORDS: 'machine learning neural networks',
-  TITLE: 'Machine Learning Research',
-  MIN_CITATIONS: 10,
-  YEAR_START: 2020,
+  // Use narrow, specific search terms to reduce paper count in tests
+  KEYWORDS: 'quantum error correction surface codes 2024',
+  TITLE: 'Quantum Error Correction Test Collection',
+  // Higher citation threshold reduces number of results
+  MIN_CITATIONS: 100,
+  // Narrow year range for fewer results
+  YEAR_START: 2024,
   YEAR_END: 2024,
 };
 
@@ -202,11 +207,66 @@ export function generateTestId(): string {
 }
 
 /**
- * Clean up test data (placeholder - implement based on your cleanup needs)
+ * Create a test collection with papers
+ * Returns the collection ID
+ */
+export async function createTestCollection(params?: {
+  name?: string;
+  keywords?: string;
+}): Promise<string | null> {
+  try {
+    const response = await fetch(`${TEST_CONFIG.BASE_URL}/api/collections`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: params?.name || MOCK_COLLECTION.TITLE,
+        keywords: params?.keywords || MOCK_COLLECTION.KEYWORDS,
+        filters: {
+          minCitations: MOCK_COLLECTION.MIN_CITATIONS,
+          yearFrom: MOCK_COLLECTION.YEAR_START,
+          yearTo: MOCK_COLLECTION.YEAR_END,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to create test collection:', await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    return data.data?.collection?.id || null;
+  } catch (error) {
+    console.error('Error creating test collection:', error);
+    return null;
+  }
+}
+
+/**
+ * Clean up test data - deletes test collections and associated resources
  */
 export async function cleanupTestData(testId: string): Promise<void> {
-  // Implement cleanup logic here
-  console.log(`Cleaning up test data for ${testId}`);
+  try {
+    // Call cleanup API endpoint (only works in test environment)
+    const response = await fetch(`${TEST_CONFIG.BASE_URL}/api/test/cleanup`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ testId }),
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `Failed to cleanup test data for ${testId}:`,
+        await response.text()
+      );
+    }
+  } catch (error) {
+    console.warn(`Error cleaning up test data for ${testId}:`, error);
+  }
 }
 
 /**

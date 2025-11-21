@@ -56,6 +56,59 @@ tests/e2e/
    - Ensure Redis is running (for background jobs)
    - Configure test environment variables in `.env.local`
 
+## Test Environment Setup
+
+### Automated Test Setup (NEW!)
+
+E2E tests now include **automated global setup and teardown** to ensure a clean test environment:
+
+**Global Setup (`tests/e2e/global-setup.ts`)** runs once before all tests:
+
+- ✅ Verifies required environment variables
+- ✅ Resets Supabase database to clean state (`npx supabase db reset`)
+- ✅ Clears all Redis queues (pdf-download, pdf-indexing, insight-generation)
+- ✅ Sets `TEST_PAPER_LIMIT=10` (limits paper count for fast tests)
+
+**Global Teardown (`tests/e2e/global-teardown.ts`)** runs once after all tests:
+
+- ✅ Clears all Redis queues
+- ✅ Ensures no background jobs are running
+
+**Per-Test Cleanup** (`afterAll` hooks in each spec file):
+
+- ✅ Deletes test collections and associated resources
+- ✅ Prevents test data pollution
+
+### Environment Variables for Testing
+
+Add the following to your `.env.local`:
+
+```bash
+# Testing configuration
+TEST_PAPER_LIMIT=10  # Reduce from default 100 to speed up tests
+```
+
+This limits Semantic Scholar searches to 10 papers instead of 100 during tests, reducing test execution time from minutes to seconds.
+
+### Manual Reset (if needed)
+
+If tests fail or you need to manually reset the test environment:
+
+```bash
+# Reset Supabase database
+npx supabase db reset --db-url $DATABASE_URL
+
+# Clear Redis queues
+npm run ops:clear-queues
+# or
+node scripts/ops/clear-queues.ts
+
+# Clean up test collections via API (only works in test/dev mode)
+curl -X DELETE http://localhost:3000/api/test/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
 ## Running Tests
 
 ### Run all tests
@@ -339,8 +392,16 @@ Expected performance thresholds:
 
 1. **OAuth testing:** Requires special setup for Google OAuth in test mode
 2. **Background jobs:** Some tests require workers to be running
-3. **Rate limiting:** Semantic Scholar API may throttle requests in CI
-4. **Flaky tests:** Network-dependent tests may be flaky in CI
+3. **Rate limiting:** Semantic Scholar API may throttle requests in CI (mitigated by TEST_PAPER_LIMIT)
+
+## Recent Improvements (2025-11-19)
+
+- ✅ **Automated database reset** - Tests now start with clean state every time
+- ✅ **Redis queue cleanup** - No leftover background jobs between test runs
+- ✅ **Reduced paper count** - `TEST_PAPER_LIMIT=10` speeds up tests significantly
+- ✅ **Sequential execution** - Tests run sequentially to prevent conflicts
+- ✅ **Per-test cleanup** - Each test suite cleans up created resources
+- ✅ **Narrow search keywords** - Test data uses specific queries to reduce results
 
 ## Future Enhancements
 
@@ -349,7 +410,7 @@ Expected performance thresholds:
 - [ ] Add performance profiling
 - [ ] Add API mocking for isolated tests
 - [ ] Add test data fixtures
-- [ ] Add parallel test execution
+- [ ] Re-enable parallel test execution (after ensuring proper test isolation)
 - [ ] Add test coverage reporting
 - [ ] Add cross-browser testing in CI
 

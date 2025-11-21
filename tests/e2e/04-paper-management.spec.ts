@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { test, expect } from '@playwright/test';
+import { cleanupTestData } from './helpers/test-utils';
+import { loginTestUser } from './helpers/auth';
 
 /**
  * E2E Test Suite: Paper Management
@@ -10,13 +12,26 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Paper Management', () => {
+  // Track created resources for cleanup
+  const createdResourceIds: string[] = [];
+
+  // Clean up after all tests in this suite
+  test.afterAll(async () => {
+    for (const resourceId of createdResourceIds) {
+      await cleanupTestData(resourceId);
+    }
+  });
+
   // Helper function to navigate to a collection's Papers tab
   const navigateToCollectionPapers = async (
     page,
     collectionId = 'test-collection-id'
   ) => {
+    // Ensure user is logged in first
+    await loginTestUser(page);
+
     await page.goto(`http://localhost:3000/collections/${collectionId}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
 
     // Make sure we're on the Papers tab (default)
     const papersTab = page.getByRole('tab', { name: /papers/i }).first();
@@ -27,9 +42,7 @@ test.describe('Paper Management', () => {
   };
 
   test.describe('4.1 View Paper List', () => {
-    test.skip('should display papers in collection', async ({
-      page: _page,
-    }) => {
+    test('should display papers in collection', async ({ page }) => {
       // Requires test collection with papers
       await navigateToCollectionPapers(page);
 
@@ -50,7 +63,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should display paper metadata', async ({ page: _page }) => {
+    test('should display paper metadata', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const firstPaper = page.locator('[data-testid="paper-card"]').first();
@@ -71,9 +84,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should show paper status indicators', async ({
-      page: _page,
-    }) => {
+    test('should show paper status indicators', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for status badges
@@ -95,9 +106,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should display Open Access badge for OA papers', async ({
-      page,
-    }) => {
+    test('should display Open Access badge for OA papers', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for Open Access indicators
@@ -112,7 +121,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.2 Filter Papers', () => {
-    test.skip('should filter papers by status', async ({ page: _page }) => {
+    test('should filter papers by status', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for status filter
@@ -144,7 +153,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should filter papers by year range', async ({ page: _page }) => {
+    test('should filter papers by year range', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for year range filter
@@ -172,7 +181,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should show "All" papers when filter is cleared', async ({
+    test('should show "All" papers when filter is cleared', async ({
       page,
     }) => {
       await navigateToCollectionPapers(page);
@@ -201,9 +210,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should update paper count when filtering', async ({
-      page: _page,
-    }) => {
+    test('should update paper count when filtering', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for paper count display
@@ -227,9 +234,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.3 Sort Papers', () => {
-    test.skip('should sort papers by citations (descending)', async ({
-      page,
-    }) => {
+    test('should sort papers by citations (descending)', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Look for sort dropdown
@@ -264,9 +269,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should sort papers by year (newest first)', async ({
-      page: _page,
-    }) => {
+    test('should sort papers by year (newest first)', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const sortSelect = page.locator('select[name="sort"]').first();
@@ -297,9 +300,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should sort papers by relevance (default)', async ({
-      page: _page,
-    }) => {
+    test('should sort papers by relevance (default)', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const sortSelect = page.locator('select[name="sort"]').first();
@@ -316,9 +317,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.4 View Paper Abstract', () => {
-    test.skip('should open abstract modal when clicking paper', async ({
-      page,
-    }) => {
+    test('should open abstract modal when clicking paper', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const firstPaper = page.locator('[data-testid="paper-card"]').first();
@@ -349,9 +348,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should display full paper details in modal', async ({
-      page,
-    }) => {
+    test('should display full paper details in modal', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const firstPaper = page.locator('[data-testid="paper-card"]').first();
@@ -374,9 +371,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should close modal on cancel or escape', async ({
-      page: _page,
-    }) => {
+    test('should close modal on cancel or escape', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const firstPaper = page.locator('[data-testid="paper-card"]').first();
@@ -398,9 +393,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.5 Download PDF', () => {
-    test.skip('should show download link for indexed papers', async ({
-      page,
-    }) => {
+    test('should show download link for indexed papers', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       // Find indexed papers
@@ -430,9 +423,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should hide download link for pending papers', async ({
-      page,
-    }) => {
+    test('should hide download link for pending papers', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const pendingPaper = page
@@ -455,16 +446,14 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should open PDF in new tab when clicked', async ({
-      page: _page,
-    }) => {
+    test('should open PDF in new tab when clicked', async ({ page }) => {
       // This test requires actual PDF to be available
       // Skip for now - implement with proper test data
     });
   });
 
   test.describe('4.6 Paper Processing Status', () => {
-    test.skip('should show loading indicator for pending papers', async ({
+    test('should show loading indicator for pending papers', async ({
       page,
     }) => {
       await navigateToCollectionPapers(page);
@@ -493,7 +482,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should show success indicator for indexed papers', async ({
+    test('should show success indicator for indexed papers', async ({
       page,
     }) => {
       await navigateToCollectionPapers(page);
@@ -516,9 +505,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should show error indicator for failed papers', async ({
-      page,
-    }) => {
+    test('should show error indicator for failed papers', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const failedPaper = page
@@ -545,7 +532,7 @@ test.describe('Paper Management', () => {
       }
     });
 
-    test.skip('should update status in real-time', async ({ page: _page }) => {
+    test('should update status in real-time', async ({ page }) => {
       // This test requires background workers to be running
       // and papers actively being processed
 
@@ -578,7 +565,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.7 Paper List Pagination (Future)', () => {
-    test.skip('should paginate large paper lists', async ({ page: _page }) => {
+    test('should paginate large paper lists', async ({ page }) => {
       // If pagination is implemented for large collections
       await navigateToCollectionPapers(page);
 
@@ -607,9 +594,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.8 Paper Search (Future)', () => {
-    test.skip('should search papers within collection', async ({
-      page: _page,
-    }) => {
+    test('should search papers within collection', async ({ page }) => {
       await navigateToCollectionPapers(page);
 
       const searchInput = page.getByPlaceholder(/search papers/i).first();
@@ -629,9 +614,7 @@ test.describe('Paper Management', () => {
   });
 
   test.describe('4.9 Performance', () => {
-    test.skip('should load paper list within acceptable time', async ({
-      page,
-    }) => {
+    test('should load paper list within acceptable time', async ({ page }) => {
       const startTime = Date.now();
 
       await navigateToCollectionPapers(page);
@@ -645,9 +628,7 @@ test.describe('Paper Management', () => {
       expect(loadTime).toBeLessThan(3000);
     });
 
-    test.skip('should handle large paper lists efficiently', async ({
-      page,
-    }) => {
+    test('should handle large paper lists efficiently', async ({ page }) => {
       // Test with collection containing 100+ papers
       await navigateToCollectionPapers(page);
 

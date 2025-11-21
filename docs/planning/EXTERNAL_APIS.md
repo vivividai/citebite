@@ -11,7 +11,7 @@
 - **[전체 아키텍처](./OVERVIEW.md)** - 시스템 개요 및 데이터 흐름
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증
-- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Prisma, Supabase Storage
+- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase Client, Supabase Storage
 - **[인프라 및 운영](./INFRASTRUCTURE.md)** - 배포, 백그라운드 작업, 보안
 
 ---

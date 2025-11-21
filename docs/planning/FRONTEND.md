@@ -11,7 +11,7 @@
 - **[전체 아키텍처](./OVERVIEW.md)** - 시스템 개요 및 데이터 흐름
 - **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증
-- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Prisma, Supabase Storage
+- **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase Client, Supabase Storage
 - **[인프라 및 운영](./INFRASTRUCTURE.md)** - 배포, 백그라운드 작업, 보안
 
 ---
@@ -33,10 +33,12 @@
 // app/collections/[id]/page.tsx (서버 컴포넌트)
 export default async function CollectionPage({ params }: { params: { id: string } }) {
   // 서버에서 데이터 패칭
-  const collection = await prisma.collection.findUnique({
-    where: { id: params.id },
-    include: { papers: true, conversations: true }
-  });
+  const supabase = createClient();
+  const { data: collection } = await supabase
+    .from('collections')
+    .select('*, papers(*), conversations(*)')
+    .eq('id', params.id)
+    .single();
 
   return <CollectionDetail collection={collection} />;
 }
@@ -87,7 +89,7 @@ export function ChatInterface({ conversationId }: { conversationId: string }) {
 
 - **타입 안정성**: 런타임 에러 사전 방지
 - **자동완성**: 개발 속도 향상
-- **Prisma 통합**: DB 스키마 타입 자동 생성
+- **Supabase 통합**: DB 스키마 타입 자동 생성 (`supabase gen types typescript`)
 - **API 계약**: 프론트-백엔드 인터페이스 명확화
 
 **타입 정의 예시:**

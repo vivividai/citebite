@@ -486,8 +486,8 @@ export async function middleware(req: NextRequest) {
 
 #### 3.1.3 SQL Injection 방지
 
-- Prisma ORM 사용 (파라미터화된 쿼리)
-- Raw SQL 사용 시 `prisma.$queryRaw` 템플릿 리터럴
+- Supabase Client 사용 (파라미터화된 쿼리)
+- Raw SQL 사용 시 `supabase.rpc()` 또는 prepared statements
 
 #### 3.1.4 XSS 방지
 

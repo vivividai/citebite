@@ -7,7 +7,7 @@
 
 import { getGeminiClient, withGeminiErrorHandling } from './client';
 import { GeminiApiError } from './types';
-import { CitedPaper } from '@/lib/db/messages';
+import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 
 /**
  * Conversation message format
@@ -18,11 +18,12 @@ export interface ConversationMessage {
 }
 
 /**
- * Chat response with citations
+ * Chat response with grounding metadata
  */
 export interface ChatResponse {
   answer: string;
-  citedPapers: CitedPaper[];
+  groundingChunks: GroundingChunk[];
+  groundingSupports: GroundingSupport[];
 }
 
 /**
@@ -31,7 +32,6 @@ export interface ChatResponse {
  * @param fileSearchStoreId - The File Search Store ID containing indexed papers
  * @param userQuestion - The user's question
  * @param conversationHistory - Previous messages in the conversation (last 5-10 messages)
- * @param collectionPaperIds - Array of paper IDs in the collection (for validation)
  * @returns Promise with AI answer and cited papers
  *
  * @example
@@ -42,16 +42,14 @@ export interface ChatResponse {
  *   [
  *     { role: 'user', content: 'Tell me about transformers' },
  *     { role: 'assistant', content: 'Transformers are...' }
- *   ],
- *   ['paper1', 'paper2']
+ *   ]
  * );
  * ```
  */
 export async function queryWithFileSearch(
   fileSearchStoreId: string,
   userQuestion: string,
-  conversationHistory: ConversationMessage[] = [],
-  collectionPaperIds: string[] = []
+  conversationHistory: ConversationMessage[] = []
 ): Promise<ChatResponse> {
   return withGeminiErrorHandling(async () => {
     const client = getGeminiClient();
@@ -73,7 +71,12 @@ export async function queryWithFileSearch(
 
       // Call Gemini with File Search tool
       // Based on official documentation: https://ai.google.dev/gemini-api/docs/file-search
-      const response = await client.models.generateContent({
+      console.log(`[Gemini Chat] File Search Store ID: ${fileSearchStoreId}`);
+      console.log(
+        `[Gemini Chat] File Search Store Name: fileSearchStores/${fileSearchStoreId}`
+      );
+
+      const requestConfig = {
         model: 'gemini-2.5-flash',
         contents,
         config: {
@@ -85,7 +88,14 @@ export async function queryWithFileSearch(
             },
           ],
         },
-      });
+      };
+
+      console.log(
+        '[Gemini Chat] Request config:',
+        JSON.stringify(requestConfig, null, 2)
+      );
+
+      const response = await client.models.generateContent(requestConfig);
 
       // Log full response for debugging (can be removed in production)
       console.log('[Gemini Chat] Response:', JSON.stringify(response, null, 2));
@@ -98,15 +108,17 @@ export async function queryWithFileSearch(
       // Extract grounding metadata for citations
       const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
 
-      // Extract citations from grounding metadata
-      const citedPapers = extractCitationsFromMetadata(
-        groundingMetadata,
-        collectionPaperIds
+      // Extract grounding data (chunks and supports)
+      const { chunks, supports } = extractGroundingData(groundingMetadata);
+
+      console.log(
+        `[Gemini Chat] Found ${chunks.length} chunks, ${supports.length} supports`
       );
 
       return {
         answer,
-        citedPapers,
+        groundingChunks: chunks,
+        groundingSupports: supports,
       };
     } catch (error) {
       const err = error as GeminiApiError;
@@ -144,124 +156,83 @@ export async function queryWithFileSearch(
 }
 
 /**
- * Extract citations from Gemini's grounding metadata
+ * Extract grounding data from Gemini's response metadata
  *
- * Maps grounding chunks to paper IDs using custom metadata stored during upload.
- * The structure of grounding metadata may vary, so this function handles different formats.
+ * Returns both chunks (source text) and supports (text segment → chunk mapping)
+ * for interactive citation display.
  *
  * @param groundingMetadata - Grounding metadata from Gemini response
- * @param collectionPaperIds - Array of paper IDs in collection for validation
- * @returns Array of cited papers with metadata
+ * @returns Object containing chunks and supports arrays
  */
-function extractCitationsFromMetadata(
-  groundingMetadata: unknown,
-  collectionPaperIds: string[]
-): CitedPaper[] {
+function extractGroundingData(groundingMetadata: unknown): {
+  chunks: GroundingChunk[];
+  supports: GroundingSupport[];
+} {
   if (!groundingMetadata) {
     console.log('[Gemini Chat] No grounding metadata found');
-    return [];
+    return { chunks: [], supports: [] };
   }
 
-  // Log metadata structure for debugging
-  console.log(
-    '[Gemini Chat] Grounding metadata:',
-    JSON.stringify(groundingMetadata, null, 2)
-  );
-
-  const citedPapers: CitedPaper[] = [];
-  const seenPaperIds = new Set<string>();
-
-  // Try to extract from groundingChunks
-  // The exact structure may vary, so we handle multiple possible formats
-  const chunks =
-    groundingMetadata.groundingChunks ||
-    groundingMetadata.grounding_chunks ||
+  // Extract grounding chunks
+  const metadata = groundingMetadata as Record<string, unknown>;
+  const rawChunks =
+    (metadata.groundingChunks as unknown[]) ||
+    (metadata.grounding_chunks as unknown[]) ||
     [];
 
-  for (const chunk of chunks) {
-    try {
-      // Try to extract paper_id from chunk metadata
-      // Chunks may contain references to the documents we uploaded
-      const documentName = chunk.document?.name || chunk.documentName;
-      const metadata = chunk.document?.metadata || chunk.metadata;
+  // Extract grounding supports
+  const rawSupports =
+    (metadata.groundingSupports as unknown[]) ||
+    (metadata.grounding_supports as unknown[]) ||
+    [];
 
-      // Log chunk structure for debugging
-      console.log(
-        '[Gemini Chat] Processing chunk:',
-        JSON.stringify(chunk, null, 2)
-      );
-
-      // Try to extract paper_id from custom metadata
-      let paperId: string | null = null;
-
-      if (metadata) {
-        // Check different possible formats for paper_id in metadata
-        paperId =
-          metadata.paper_id ||
-          metadata.paperId ||
-          metadata.customMetadata?.paper_id ||
-          metadata.customMetadata?.paperId;
-
-        // If metadata is an array (as it might be in custom metadata format)
-        if (Array.isArray(metadata)) {
-          const paperIdEntry = metadata.find(
-            (m: unknown) =>
-              typeof m === 'object' &&
-              m !== null &&
-              'key' in m &&
-              (m.key === 'paper_id' || m.key === 'paperId')
-          );
-          if (
-            paperIdEntry &&
-            typeof paperIdEntry === 'object' &&
-            paperIdEntry !== null
-          ) {
-            paperId =
-              ('stringValue' in paperIdEntry
-                ? (paperIdEntry as { stringValue?: string }).stringValue
-                : undefined) ||
-              ('value' in paperIdEntry
-                ? (paperIdEntry as { value?: string }).value
-                : undefined);
-          }
-        }
-      }
-
-      // If we couldn't extract paper_id, try to extract from document name
-      // Document names might follow a pattern like "papers/{paper_id}"
-      if (!paperId && documentName) {
-        const match = documentName.match(/papers\/([^/]+)/);
-        if (match) {
-          paperId = match[1];
-        }
-      }
-
-      // Validate paper_id exists in collection
-      if (paperId && collectionPaperIds.includes(paperId)) {
-        // Avoid duplicates
-        if (!seenPaperIds.has(paperId)) {
-          seenPaperIds.add(paperId);
-
-          // Extract relevance score if available
-          const relevanceScore = chunk.relevanceScore || chunk.relevance_score;
-
-          citedPapers.push({
-            paperId,
-            title: metadata?.title || 'Unknown paper',
-            relevanceScore: relevanceScore || undefined,
-          });
-        }
-      } else if (paperId) {
-        console.warn(
-          `[Gemini Chat] Paper ${paperId} cited but not in collection (possible hallucination)`
-        );
-      }
-    } catch (error) {
-      console.error('[Gemini Chat] Error processing chunk:', error);
-      // Continue processing other chunks
-    }
+  interface RawChunk {
+    retrievedContext?: {
+      text?: string;
+      fileSearchStore?: string;
+    };
   }
 
-  console.log(`[Gemini Chat] Extracted ${citedPapers.length} citations`);
-  return citedPapers;
+  interface RawSupport {
+    segment?: {
+      startIndex?: number;
+      endIndex?: number;
+      text?: string;
+    };
+    groundingChunkIndices?: number[];
+  }
+
+  // Type-safe chunk extraction
+  const chunks: GroundingChunk[] = Array.isArray(rawChunks)
+    ? rawChunks
+        .filter((chunk): chunk is RawChunk => {
+          const c = chunk as RawChunk;
+          return !!c.retrievedContext?.text;
+        })
+        .map(chunk => ({
+          retrievedContext: {
+            text: chunk.retrievedContext!.text!,
+            fileSearchStore: chunk.retrievedContext!.fileSearchStore,
+          },
+        }))
+    : [];
+
+  // Type-safe support extraction
+  const supports: GroundingSupport[] = Array.isArray(rawSupports)
+    ? rawSupports
+        .filter((support): support is RawSupport => {
+          const s = support as RawSupport;
+          return !!s.segment && Array.isArray(s.groundingChunkIndices);
+        })
+        .map(support => ({
+          segment: {
+            startIndex: support.segment!.startIndex || 0,
+            endIndex: support.segment!.endIndex || 0,
+            text: support.segment!.text || '',
+          },
+          groundingChunkIndices: support.groundingChunkIndices!,
+        }))
+    : [];
+
+  return { chunks, supports };
 }

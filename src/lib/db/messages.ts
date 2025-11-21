@@ -4,13 +4,49 @@ import { Database, TablesInsert } from '@/types/database.types';
 type MessageInsert = TablesInsert<'messages'>;
 
 /**
+ * Grounding chunk from Gemini File Search API
+ * Contains the actual text that was retrieved and cited
+ */
+export interface GroundingChunk {
+  retrievedContext?: {
+    text: string;
+    fileSearchStore?: string;
+  };
+}
+
+/**
+ * Grounding support from Gemini File Search API
+ * Maps specific text segments to the chunks that support them
+ */
+export interface GroundingSupport {
+  segment: {
+    startIndex: number;
+    endIndex: number;
+    text: string;
+  };
+  groundingChunkIndices: number[];
+}
+
+/**
  * Citation metadata structure stored in messages.cited_papers JSONB field
+ *
+ * For Gemini File Search:
+ * - chunks: Array of source text chunks from grounding metadata
+ * - supports: Mapping of response text segments to chunk indices
+ *
+ * Legacy format (deprecated):
+ * - paperId, title, relevanceScore for individual paper citations
  */
 export interface CitedPaper {
-  paperId: string;
-  title: string;
+  // Gemini File Search grounding data
+  chunks?: GroundingChunk[];
+  supports?: GroundingSupport[];
+
+  // Legacy fields (deprecated - Gemini doesn't provide paper IDs)
+  paperId?: string;
+  title?: string;
   relevanceScore?: number;
-  citedInContext?: string; // The specific context where this paper was cited
+  citedInContext?: string;
 }
 
 /**

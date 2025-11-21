@@ -64,32 +64,86 @@ Technical documentation is organized by concern for easier navigation:
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js 20+
+- Docker Desktop (for local Supabase and Redis)
+- npm (this project uses npm, not pnpm or yarn)
+
+### Installation
+
 ```bash
-# Install dependencies
+# 1. Install dependencies
 npm install
 
-# Set up environment variables
+# 2. Set up environment variables
 cp .env.example .env.local
-# Required environment variables:
+# Edit .env.local with your keys:
 # - NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 # - SUPABASE_SERVICE_ROLE_KEY (server-only)
 # - DATABASE_URL (Supabase PostgreSQL connection string)
 # - GEMINI_API_KEY
-# - SEMANTIC_SCHOLAR_API_KEY
-# - REDIS_URL (for BullMQ)
+# - SEMANTIC_SCHOLAR_API_KEY (optional, for API key authentication)
+# - REDIS_URL (for BullMQ, default: redis://localhost:6379)
 
-# Initialize Supabase (first time only)
-npx supabase init
+# 3. Start local Supabase
+npx supabase start
+# Note: First time may take 5-10 minutes to download Docker images
+# This will start PostgreSQL, Auth, Storage, and other Supabase services
 
-# Link to your Supabase project
-npx supabase link --project-ref <your-project-ref>
+# 4. Apply database migrations
+npx supabase db reset
+# This applies all migrations in supabase/migrations/
 
-# Pull remote schema (or push local migrations)
-npx supabase db pull
+# 5. Generate TypeScript types from database schema
+npx supabase gen types typescript --local > src/types/database.types.ts
 
-# Start development server
+# 6. Start Redis (Docker)
+docker run -d --name citebite-redis -p 6379:6379 redis:7-alpine
+# Or use existing Redis instance and update REDIS_URL in .env.local
+
+# 7. Start background workers (in separate terminal)
+npm run workers
+# This starts BullMQ workers for PDF processing
+
+# 8. Start development server
 npm run dev
+# App will be available at http://localhost:3000
 ```
+
+### Verify Setup
+
+After starting all services, verify they're running:
+
+- **Next.js**: http://localhost:3000
+- **Supabase Studio**: http://localhost:54323
+- **API Health**: http://localhost:3000/api/collections (should return 401 if not logged in)
+- **Workers**: Check terminal where `npm run workers` is running for log output
+
+### Stop Services
+
+```bash
+# Stop Next.js dev server (Ctrl+C in dev terminal)
+
+# Stop workers (Ctrl+C in worker terminal)
+
+# Stop Supabase
+npx supabase stop
+
+# Stop Redis
+docker stop citebite-redis
+# To remove: docker rm citebite-redis
+```
+
+### Useful Scripts
+
+For detailed script documentation and utility commands, see [scripts/README.md](./scripts/README.md).
+
+**Key commands:**
+
+- `npm run workers` - Start background job workers
+- `npm run queues:check` - Monitor queue status
+- `npm run queues:clear` - Clear all queues (dev only)
 
 For complete development workflow and deployment guide, see [INFRASTRUCTURE.md](./docs/planning/INFRASTRUCTURE.md).
 
@@ -205,7 +259,7 @@ For detailed security guide, see [INFRASTRUCTURE.md - Security Best Practices](.
 
 ### 4. Performance Optimization
 
-- Cache server state with React Query and automatic refetching
+- Cache server state with TanStack Query (React Query) and automatic refetching
 - Cache Semantic Scholar API responses in Redis (24 hours)
 - Prevent N+1 queries with proper JOIN queries
 - Lazy load conversation messages (paginate when >50 messages)
@@ -335,6 +389,127 @@ For detailed implementation checklist with ~110 testable tasks, E2E test checkpo
 5. **Don't overload insights** - Keep summaries concise (3-5 bullet points per section)
 
 For more implementation details and best practices, see [OVERVIEW.md](./docs/planning/OVERVIEW.md).
+
+---
+
+## Common Development Tasks
+
+### Working with Database
+
+**Create a new migration:**
+
+```bash
+npx supabase migration new add_new_table
+# Edit file in supabase/migrations/
+npx supabase db reset  # Apply locally
+npx supabase gen types typescript --local > src/types/database.types.ts
+```
+
+**Query the database:**
+
+```typescript
+// Use server-side Supabase client
+import { createClient } from '@/lib/supabase/server';
+
+const supabase = createClient();
+const { data, error } = await supabase
+  .from('collections')
+  .select('*')
+  .eq('user_id', userId);
+```
+
+### Working with Background Jobs
+
+**Start workers:**
+
+```bash
+npm run workers
+```
+
+**Monitor queues:**
+
+```bash
+npm run queues:check
+```
+
+**Clear stuck jobs:**
+
+```bash
+npm run queues:clear
+```
+
+### Running Tests
+
+**Setup (first time only):**
+
+Add to `.env.local`:
+
+```bash
+TEST_PAPER_LIMIT=10  # Limits papers to 10 for faster tests (default: 100)
+```
+
+**E2E tests (Playwright):**
+
+```bash
+npx playwright test  # Auto setup/teardown included (DB reset + Redis clear)
+npx playwright test --ui  # Interactive mode
+npx playwright test tests/e2e/03-collection-management.spec.ts  # Specific test
+```
+
+**Manual reset (if tests fail or environment is corrupted):**
+
+```bash
+npx supabase db reset --db-url $DATABASE_URL
+npm run ops:clear-queues  # or: node scripts/ops/clear-queues.ts
+```
+
+### Adding a New API Route
+
+1. Create route file in `src/app/api/`
+2. Validate input with Zod schema
+3. Use server-side Supabase client for auth and data access
+4. Add E2E test for the route
+
+---
+
+## Troubleshooting
+
+### "User not authenticated" errors
+
+- Ensure you're logged in: Visit http://localhost:3000/login
+- Check `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in .env.local
+- Verify Supabase is running: `npx supabase status`
+
+### Background jobs not processing
+
+- Verify workers are running: `npm run workers`
+- Check Redis connection: `npm run queues:check`
+- If Redis is down: `docker start citebite-redis`
+- View worker logs in the terminal where workers are running
+
+### "Supabase is not running" error
+
+- Start Supabase: `npx supabase start`
+- If stuck: `npx supabase stop && npx supabase start`
+- Check Docker Desktop is running
+
+### Database schema out of sync
+
+- Reset database: `npx supabase db reset`
+- Regenerate types: `npx supabase gen types typescript --local > src/types/database.types.ts`
+- Restart dev server: `npm run dev`
+
+### Hot reload not working
+
+- Restart dev server: Stop (Ctrl+C) and run `npm run dev` again
+- Clear Next.js cache: `rm -rf .next`
+- Check for TypeScript errors in terminal
+
+### API routes returning 404
+
+- Verify route file exists in correct location (`src/app/api/`)
+- Check file naming convention (use `route.ts`, not `index.ts`)
+- Restart dev server
 
 ---
 

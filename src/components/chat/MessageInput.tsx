@@ -5,31 +5,82 @@ import { Send, Loader2, AlertCircle } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useSendMessage } from '@/hooks/useSendMessage';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface MessageInputProps {
-  conversationId: string;
+  conversationId: string | null;
+  collectionId?: string;
+  onConversationCreated?: (conversationId: string) => void;
   disabled?: boolean;
 }
 
 export function MessageInput({
   conversationId,
+  collectionId,
+  onConversationCreated,
   disabled = false,
 }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const sendMessage = useSendMessage();
+  const queryClient = useQueryClient();
 
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
 
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || sendMessage.isPending) return;
+    if (!trimmedMessage || sendMessage.isPending || isCreatingConversation)
+      return;
 
     setError(null);
 
     try {
+      let targetConversationId = conversationId;
+
+      // If no conversation exists, create one first
+      if (!targetConversationId) {
+        if (!collectionId) {
+          throw new Error('Collection ID is required to create conversation');
+        }
+
+        setIsCreatingConversation(true);
+        try {
+          const res = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              collectionId,
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(
+              data.error || data.message || 'Failed to create conversation'
+            );
+          }
+
+          targetConversationId = data.data.conversation.id;
+          onConversationCreated?.(targetConversationId);
+
+          // Invalidate conversations query to show new conversation in list
+          if (collectionId) {
+            queryClient.invalidateQueries({
+              queryKey: ['collections', collectionId, 'conversations'],
+            });
+          }
+        } finally {
+          setIsCreatingConversation(false);
+        }
+      }
+
+      // Send message to the conversation
       await sendMessage.mutateAsync({
-        conversationId,
+        conversationId: targetConversationId,
         content: trimmedMessage,
       });
       setMessage(''); // Clear input on success
@@ -46,8 +97,15 @@ export function MessageInput({
     }
   };
 
-  const isDisabled = disabled || sendMessage.isPending;
+  const isDisabled =
+    disabled || sendMessage.isPending || isCreatingConversation;
   const canSend = message.trim().length > 0 && !isDisabled;
+
+  const getPlaceholder = () => {
+    if (isCreatingConversation) return 'Creating conversation...';
+    if (sendMessage.isPending) return 'Waiting for response...';
+    return 'Ask a question about the papers... (Cmd/Ctrl + Enter to send)';
+  };
 
   return (
     <div className="border-t bg-white p-4">
@@ -72,11 +130,7 @@ export function MessageInput({
           value={message}
           onChange={e => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={
-            isDisabled
-              ? 'Waiting for response...'
-              : 'Ask a question about the papers... (Cmd/Ctrl + Enter to send)'
-          }
+          placeholder={getPlaceholder()}
           disabled={isDisabled}
           className="min-h-[80px] max-h-[200px] resize-none"
           rows={3}

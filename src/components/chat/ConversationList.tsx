@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useConversations } from '@/hooks/useConversations';
 import { ConversationItem } from './ConversationItem';
 import { Button } from '@/components/ui/button';
@@ -10,35 +9,22 @@ import { useQueryClient } from '@tanstack/react-query';
 interface ConversationListProps {
   collectionId: string;
   selectedConversationId: string | null;
-  onSelectConversation: (conversationId: string) => void;
-  onCreateConversation: () => Promise<string>;
+  onSelectConversation: (conversationId: string | null) => void;
+  onStartNewConversation: () => void;
 }
 
 export function ConversationList({
   collectionId,
   selectedConversationId,
   onSelectConversation,
-  onCreateConversation,
+  onStartNewConversation,
 }: ConversationListProps) {
   const {
     data: conversations,
     isLoading,
     error,
   } = useConversations(collectionId);
-  const [isCreating, setIsCreating] = useState(false);
   const queryClient = useQueryClient();
-
-  const handleCreateConversation = async () => {
-    setIsCreating(true);
-    try {
-      const newConversationId = await onCreateConversation();
-      onSelectConversation(newConversationId);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const handleRename = async (id: string, newTitle: string) => {
     try {
@@ -122,21 +108,11 @@ export function ConversationList({
     <div className="flex flex-col h-full">
       <div className="p-3 border-b">
         <Button
-          onClick={handleCreateConversation}
-          disabled={isCreating}
+          onClick={onStartNewConversation}
           className="w-full gap-2"
           variant="outline"
         >
-          {isCreating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              생성 중...
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4" />새 대화
-            </>
-          )}
+          <Plus className="h-4 w-4" />새 대화
         </Button>
       </div>
 

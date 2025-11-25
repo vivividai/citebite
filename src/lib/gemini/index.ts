@@ -21,6 +21,22 @@ export {
   withRetry,
 } from './fileSearch';
 
+// Chat functions
+export { queryWithFileSearch } from './chat';
+export type { ConversationMessage, ChatResponse } from './chat';
+
+// Prompts (for customization/testing)
+export {
+  CITATION_SYSTEM_PROMPT,
+  RETRY_CONFIG,
+  FALLBACK_PROMPTS,
+  buildCitationAwarePrompt,
+} from './prompts';
+
+// Grounding validation
+export { validateGroundingMetadata } from './grounding-validator';
+export type { ValidationResult } from './grounding-validator';
+
 // Types
 export type {
   PaperMetadata,

@@ -3,11 +3,23 @@
  *
  * Provides functions to query Gemini with File Search tool for
  * citation-backed AI conversations with research papers.
+ *
+ * Features:
+ * - System prompt for citation-focused responses
+ * - Low temperature for deterministic, citation-heavy output
+ * - Automatic retry when grounding metadata is missing
  */
 
 import { getGeminiClient, withGeminiErrorHandling } from './client';
 import { GeminiApiError } from './types';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
+import {
+  CITATION_SYSTEM_PROMPT,
+  RETRY_CONFIG,
+  FALLBACK_PROMPTS,
+  buildCitationAwarePrompt,
+} from './prompts';
+import { validateGroundingMetadata } from './grounding-validator';
 
 /**
  * Conversation message format
@@ -27,7 +39,16 @@ export interface ChatResponse {
 }
 
 /**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Query Gemini with File Search tool for RAG-based chat
+ *
+ * Includes automatic retry logic when grounding metadata is missing.
  *
  * @param fileSearchStoreId - The File Search Store ID containing indexed papers
  * @param userQuestion - The user's question
@@ -51,10 +72,40 @@ export async function queryWithFileSearch(
   userQuestion: string,
   conversationHistory: ConversationMessage[] = []
 ): Promise<ChatResponse> {
+  return queryWithRetry(
+    fileSearchStoreId,
+    userQuestion,
+    conversationHistory,
+    0
+  );
+}
+
+/**
+ * Internal function that handles retry logic for missing grounding metadata
+ */
+async function queryWithRetry(
+  fileSearchStoreId: string,
+  userQuestion: string,
+  conversationHistory: ConversationMessage[],
+  retryCount: number
+): Promise<ChatResponse> {
   return withGeminiErrorHandling(async () => {
     const client = getGeminiClient();
 
     try {
+      // Build prompt based on retry count
+      let prompt: string;
+      if (retryCount === 0) {
+        // Initial query with citation-aware prompt
+        prompt = buildCitationAwarePrompt(userQuestion);
+      } else if (retryCount === 1) {
+        // First retry: add explicit citation instruction
+        prompt = FALLBACK_PROMPTS.retry1(userQuestion);
+      } else {
+        // Second retry: reframe as explicit grounding request
+        prompt = FALLBACK_PROMPTS.retry2(userQuestion);
+      }
+
       // Build content array with conversation history + new question
       // Note: Gemini uses 'model' role instead of 'assistant'
       const contents = [
@@ -65,7 +116,7 @@ export async function queryWithFileSearch(
         })),
         {
           role: 'user' as const,
-          parts: [{ text: userQuestion }],
+          parts: [{ text: prompt }],
         },
       ];
 
@@ -75,11 +126,20 @@ export async function queryWithFileSearch(
       console.log(
         `[Gemini Chat] File Search Store Name: fileSearchStores/${fileSearchStoreId}`
       );
+      if (retryCount > 0) {
+        console.log(
+          `[Gemini Chat] Retry attempt ${retryCount}/${RETRY_CONFIG.maxRetries}`
+        );
+      }
 
       const requestConfig = {
         model: 'gemini-2.5-flash',
         contents,
         config: {
+          // System instruction for citation-focused responses
+          systemInstruction: CITATION_SYSTEM_PROMPT,
+          // Lower temperature for more deterministic, citation-heavy output
+          temperature: 0.2,
           tools: [
             {
               fileSearch: {
@@ -92,13 +152,26 @@ export async function queryWithFileSearch(
 
       console.log(
         '[Gemini Chat] Request config:',
-        JSON.stringify(requestConfig, null, 2)
+        JSON.stringify(
+          {
+            ...requestConfig,
+            config: {
+              ...requestConfig.config,
+              // Truncate system instruction for logging
+              systemInstruction:
+                requestConfig.config.systemInstruction.substring(0, 100) +
+                '...',
+            },
+          },
+          null,
+          2
+        )
       );
 
       const response = await client.models.generateContent(requestConfig);
 
-      // Log full response for debugging (can be removed in production)
-      console.log('[Gemini Chat] Response:', JSON.stringify(response, null, 2));
+      // Log response summary (not full response in production)
+      console.log('[Gemini Chat] Response received');
 
       // Extract answer text
       const answer =
@@ -115,6 +188,37 @@ export async function queryWithFileSearch(
         `[Gemini Chat] Found ${chunks.length} chunks, ${supports.length} supports`
       );
 
+      // Validate grounding metadata
+      const validation = validateGroundingMetadata(
+        chunks,
+        supports,
+        answer.length
+      );
+
+      console.log(
+        `[Gemini Chat] Validation: isValid=${validation.isValid}, qualityScore=${validation.qualityScore.toFixed(2)}`
+      );
+
+      // Retry if grounding is invalid and we have retries left
+      if (!validation.isValid && retryCount < RETRY_CONFIG.maxRetries) {
+        console.log(
+          `[Gemini Chat] No grounding metadata, scheduling retry ${retryCount + 1}/${RETRY_CONFIG.maxRetries}`
+        );
+
+        // Wait before retry (exponential backoff)
+        const delay = RETRY_CONFIG.delays[retryCount];
+        await sleep(delay);
+
+        // Recursive retry with incremented count
+        return queryWithRetry(
+          fileSearchStoreId,
+          userQuestion,
+          conversationHistory,
+          retryCount + 1
+        );
+      }
+
+      // Return response (even if validation failed after all retries)
       return {
         answer,
         groundingChunks: chunks,

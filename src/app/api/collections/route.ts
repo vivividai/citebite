@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
-import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
+import { searchWithReranking } from '@/lib/search';
 import { createFileSearchStore } from '@/lib/gemini/fileSearch';
 import { queuePdfDownload } from '@/lib/jobs/queues';
 import {
@@ -110,25 +110,29 @@ export async function POST(request: NextRequest) {
     // For manual mode, use keywords directly
     const keywords = validatedData.keywords!; // Validation ensures this is present
 
-    // 4. Search papers using keyword search
+    // 4. Search papers with semantic re-ranking
     // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
     const paperLimit = process.env.TEST_PAPER_LIMIT
       ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
       : 100; // Default limit for final collection
 
-    console.log('[CollectionAPI] Using keyword search');
+    // Use naturalLanguageQuery for embedding, fallback to keywords
+    const userQuery = validatedData.naturalLanguageQuery || keywords;
 
-    const semanticScholarClient = getSemanticScholarClient();
-    const searchResponse = await semanticScholarClient.searchPapers({
-      keywords,
+    console.log('[CollectionAPI] Using semantic re-ranking search');
+
+    const searchResult = await searchWithReranking({
+      userQuery,
+      searchKeywords: keywords,
+      initialLimit: 500, // Fetch more papers for re-ranking
+      finalLimit: paperLimit,
       yearFrom: validatedData.filters?.yearFrom,
       yearTo: validatedData.filters?.yearTo,
       minCitations: validatedData.filters?.minCitations,
       openAccessOnly: validatedData.filters?.openAccessOnly,
-      limit: paperLimit,
     });
 
-    const papers = searchResponse.data;
+    const papers = searchResult.papers;
 
     // 5. Handle empty search results
     if (papers.length === 0) {
@@ -215,6 +219,12 @@ export async function POST(request: NextRequest) {
             openAccessPapers: openAccessPapers.length,
             queuedDownloads: successfulJobs,
             failedToQueue: queuedJobs.length - successfulJobs,
+            // Re-ranking statistics
+            reranking: {
+              totalSearched: searchResult.stats.totalSearched,
+              papersWithEmbeddings: searchResult.stats.papersWithEmbeddings,
+              rerankingApplied: searchResult.stats.rerankingApplied,
+            },
           },
         },
       },

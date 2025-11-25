@@ -134,9 +134,12 @@ export class SemanticScholarClient {
     const query = this.buildQuery(params);
 
     // Prepare request parameters
-    const fields =
-      params.fields?.join(',') ||
+    // Default fields for paper search
+    // Note: embedding field is NOT supported in bulk search - use getPapersBatch instead
+    const defaultFields =
       'paperId,title,abstract,authors,year,citationCount,venue,publicationTypes,openAccessPdf,externalIds';
+
+    const fields = params.fields?.join(',') || defaultFields;
 
     const requestParams: Record<string, string | number> = {
       query,
@@ -203,29 +206,60 @@ export class SemanticScholarClient {
 
   /**
    * Get multiple papers by paper IDs (batch endpoint)
+   * Supports up to 500 paper IDs per request
+   *
    * @param paperIds Array of Semantic Scholar paper IDs
-   * @param fields Fields to return (optional)
-   * @returns Array of papers
+   * @param options Optional parameters
+   * @param options.fields Fields to return (optional)
+   * @param options.includeEmbedding Include SPECTER embedding (only works with batch API)
+   * @returns Array of papers (may contain null for papers that don't exist)
    */
   async getPapersBatch(
     paperIds: string[],
-    fields?: string[]
-  ): Promise<Paper[]> {
-    const requestFields =
-      fields?.join(',') ||
+    options?: {
+      fields?: string[];
+      includeEmbedding?: boolean;
+    }
+  ): Promise<(Paper | null)[]> {
+    if (paperIds.length === 0) {
+      return [];
+    }
+
+    // Batch API has a limit of 500 IDs per request
+    const BATCH_SIZE = 500;
+    const batches: string[][] = [];
+
+    for (let i = 0; i < paperIds.length; i += BATCH_SIZE) {
+      batches.push(paperIds.slice(i, i + BATCH_SIZE));
+    }
+
+    const defaultFields =
       'paperId,title,abstract,authors,year,citationCount,venue,publicationTypes,openAccessPdf,externalIds';
 
-    const response = await this.executeWithRetry(async () => {
-      return this.client.post<Paper[]>(
-        '/paper/batch',
-        { ids: paperIds },
-        {
-          params: { fields: requestFields },
-        }
-      );
-    });
+    // Add embedding field if requested (only batch API supports this)
+    const requestFields =
+      options?.fields?.join(',') ||
+      (options?.includeEmbedding
+        ? `${defaultFields},embedding`
+        : defaultFields);
 
-    return response.data;
+    const results: (Paper | null)[] = [];
+
+    for (const batch of batches) {
+      const response = await this.executeWithRetry(async () => {
+        return this.client.post<(Paper | null)[]>(
+          '/paper/batch',
+          { ids: batch },
+          {
+            params: { fields: requestFields },
+          }
+        );
+      });
+
+      results.push(...response.data);
+    }
+
+    return results;
   }
 }
 

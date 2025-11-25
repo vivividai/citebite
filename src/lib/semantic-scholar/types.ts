@@ -32,6 +32,17 @@ export interface ExternalIds {
 }
 
 /**
+ * SPECTER embedding from Semantic Scholar
+ * The batch API returns embedding with model and vector fields
+ * Model is typically 'specter_v1' (768-dimensional)
+ * Note: Some papers may have embedding: null
+ */
+export interface PaperEmbedding {
+  model?: string; // e.g., 'specter_v1'
+  vector?: number[]; // 768-dimensional vector
+}
+
+/**
  * Paper metadata from Semantic Scholar
  */
 export interface Paper {
@@ -45,6 +56,8 @@ export interface Paper {
   publicationTypes?: string[];
   openAccessPdf?: OpenAccessPdf | null;
   externalIds?: ExternalIds;
+  /** SPECTER embedding (optional, fetched via batch API, not available in bulk search) */
+  embedding?: PaperEmbedding | null;
 }
 
 /**

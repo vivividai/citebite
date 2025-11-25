@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
-import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
+import { searchWithReranking } from '@/lib/search';
 
 /**
  * POST /api/collections/preview
@@ -47,25 +47,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 3. Search papers via Semantic Scholar
-    const semanticScholarClient = getSemanticScholarClient();
-
+    // 3. Search papers with semantic re-ranking
     // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
     const paperLimit = process.env.TEST_PAPER_LIMIT
       ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
       : 100; // Default limit for initial collection
 
-    const searchResponse = await semanticScholarClient.searchPapers({
-      keywords: validatedData.keywords,
+    // Use naturalLanguageQuery for embedding, fallback to keywords
+    const userQuery =
+      validatedData.naturalLanguageQuery || validatedData.keywords;
+
+    const searchResult = await searchWithReranking({
+      userQuery,
+      searchKeywords: validatedData.keywords,
+      initialLimit: 500, // Fetch more papers for re-ranking
+      finalLimit: paperLimit,
       yearFrom: validatedData.filters?.yearFrom,
       yearTo: validatedData.filters?.yearTo,
       minCitations: validatedData.filters?.minCitations,
       openAccessOnly: validatedData.filters?.openAccessOnly,
-      limit: paperLimit,
     });
 
     // 4. Handle empty search results
-    if (searchResponse.total === 0 || searchResponse.data.length === 0) {
+    if (searchResult.papers.length === 0) {
       return NextResponse.json(
         {
           error:
@@ -75,7 +79,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const papers = searchResponse.data;
+    const papers = searchResult.papers;
 
     // 5. Count Open Access papers
     const openAccessPapers = papers.filter(
@@ -91,6 +95,12 @@ export async function POST(request: NextRequest) {
         paywalledPapers: papers.length - openAccessPapers.length,
         searchQuery: validatedData.keywords,
         filters: validatedData.filters || null,
+        // Re-ranking statistics
+        reranking: {
+          totalSearched: searchResult.stats.totalSearched,
+          papersWithEmbeddings: searchResult.stats.papersWithEmbeddings,
+          rerankingApplied: searchResult.stats.rerankingApplied,
+        },
       },
     });
   } catch (error) {

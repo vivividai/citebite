@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
     const { naturalLanguageQuery } = result.data;
 
     console.log('[API:SuggestKeywords] Received request');
-    console.log(`[API:SuggestKeywords] Query length: ${naturalLanguageQuery.length} chars`);
+    console.log(
+      `[API:SuggestKeywords] Query length: ${naturalLanguageQuery.length} chars`
+    );
 
     // Extract keywords using Gemini
     const suggestion = await extractKeywords(naturalLanguageQuery);
@@ -65,7 +67,9 @@ export async function POST(request: NextRequest) {
     console.error('[API:SuggestKeywords] Error:', error);
 
     const errorMessage =
-      error instanceof Error ? error.message : 'Failed to generate keyword suggestions';
+      error instanceof Error
+        ? error.message
+        : 'Failed to generate keyword suggestions';
 
     return NextResponse.json(
       {

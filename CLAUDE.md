@@ -246,7 +246,30 @@ citebite/
 - Verify papers actually exist in the collection
 - Store citation information in database for traceability
 
-### 3. Security First
+### 3. Semantic Scholar Query Syntax
+
+**Always use Semantic Scholar's specific query operators** - NOT standard boolean operators (AND, OR, NOT)
+
+Semantic Scholar API uses its own query syntax that differs from standard boolean operators:
+
+- Use `+` for required terms (not AND)
+- Use `|` for OR logic (not OR)
+- Use `-` for exclusion (not NOT)
+- Use `( )` for grouping
+- Use `" "` for exact phrase matching
+
+**Examples:**
+
+```
+❌ Wrong: "quantum computing AND (review OR survey)"
+✅ Correct: "\"quantum computing\" +(review | survey | roadmap)"
+```
+
+**AI keyword generation:** When using Gemini to generate search keywords, ensure the prompt instructs it to use Semantic Scholar's query syntax (see `src/lib/gemini/keyword-extraction.ts`).
+
+For complete query syntax reference, see [EXTERNAL_APIS.md - Query Syntax](./docs/planning/EXTERNAL_APIS.md#141-검색-쿼리-빌더-및-query-syntax).
+
+### 4. Security First
 
 **Never expose API keys to frontend**
 
@@ -257,7 +280,7 @@ citebite/
 
 For detailed security guide, see [INFRASTRUCTURE.md - Security Best Practices](./docs/planning/INFRASTRUCTURE.md).
 
-### 4. Performance Optimization
+### 5. Performance Optimization
 
 - Cache server state with TanStack Query (React Query) and automatic refetching
 - Cache Semantic Scholar API responses in Redis (24 hours)
@@ -266,7 +289,7 @@ For detailed security guide, see [INFRASTRUCTURE.md - Security Best Practices](.
 
 For detailed optimization strategies, see [INFRASTRUCTURE.md - Performance Optimization](./docs/planning/INFRASTRUCTURE.md).
 
-### 5. Failure Handling and User Experience
+### 6. Failure Handling and User Experience
 
 **Don't ignore failed PDFs** - Provide clear UI to retry or manually upload
 
@@ -275,7 +298,7 @@ For detailed optimization strategies, see [INFRASTRUCTURE.md - Performance Optim
 - LLM timeout → Show partial response (if available) + retry button
 - API rate limit → Queue with exponential backoff, show estimated wait time
 
-### 6. Database Development Workflow
+### 7. Database Development Workflow
 
 **Always validate database changes locally before deploying** - Use the supabase-local-validator subagent
 
@@ -318,7 +341,7 @@ The agent will:
 - Test RLS policies with mock user contexts
 - Report any errors or warnings
 
-### 7. Gemini File Search API - Always Use Latest Documentation
+### 8. Gemini File Search API - Always Use Latest Documentation
 
 **IMPORTANT: API documentation may be outdated** - Always fetch latest docs before implementation
 

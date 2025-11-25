@@ -99,20 +99,52 @@ Base URL: https://api.semanticscholar.org/graph/v1
 
 ### 1.4 구현 필요 기능
 
-#### 1.4.1 검색 쿼리 빌더
+#### 1.4.1 검색 쿼리 빌더 및 Query Syntax
+
+**Semantic Scholar API Query Syntax** (공식 문서: https://www.semanticscholar.org/product/api/tutorial)
+
+Semantic Scholar는 표준 boolean operator(AND, OR, NOT)가 아닌 자체 문법을 사용합니다:
+
+| 기능            | Operator      | 예시                  | 설명                        |
+| --------------- | ------------- | --------------------- | --------------------------- |
+| 필수 포함 (AND) | `+`           | `+security`           | 반드시 포함되어야 하는 단어 |
+| 택1 (OR)        | `\|`          | `(review \| survey)`  | 둘 중 하나 이상 포함        |
+| 제외 (NOT)      | `-`           | `-privacy`            | 제외할 단어                 |
+| 그룹핑          | `( )`         | `+(review \| survey)` | 연산자 그룹화               |
+| 구절 검색       | `" "`         | `"deep learning"`     | 정확한 구절 매칭            |
+| 와일드카드      | `*`           | `fish*`               | fish로 시작하는 모든 단어   |
+| 퍼지 매칭       | `~N`          | `bugs~3`              | N글자 이내 유사 단어        |
+| 근접 검색       | `"phrase" ~N` | `"blue lake" ~3`      | N단어 이내 거리             |
+
+**Examples:**
 
 ```typescript
-// 예시: PRD의 필터 조건을 API 쿼리로 변환
+// ❌ 작동 안 함 (표준 boolean)
+'quantum computing AND (review OR survey)';
+
+// ✅ 올바른 문법
+"\"quantum computing\" +(review | survey | roadmap)";
+"transformer +\"computer vision\"";
+'((cloud computing) | virtualization) +security -privacy';
+```
+
+**Implementation:**
+
+```typescript
 function buildSemanticScholarQuery(params: {
-  keywords: string;
-  yearFrom?: number;
-  yearTo?: number;
-  minCitations?: number;
-  openAccessOnly?: boolean;
+  keywords: string; // Already formatted with Semantic Scholar syntax by AI
+  yearFrom?: number; // Passed as separate 'year' HTTP parameter
+  yearTo?: number; // Passed as separate 'year' HTTP parameter
+  minCitations?: number; // Passed as 'minCitationCount' HTTP parameter
+  openAccessOnly?: boolean; // Passed as 'openAccessPdf' HTTP parameter
 }): string {
-  // "attention mechanism" AND year:2020-2024 AND citationCount:>10
+  // Just return keywords as-is - filters are handled as HTTP params
+  return params.keywords;
 }
 ```
+
+**Note:** Year, citation count, and Open Access filters are NOT part of the query string.
+They are passed as separate HTTP parameters (see client.ts implementation).
 
 #### 1.4.2 페이지네이션 처리
 

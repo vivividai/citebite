@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -116,6 +116,116 @@ function ChunkTooltip({
   );
 }
 
+// Inline markdown wrapper - renders content inline using display:contents
+function InlineMarkdown({ children }: { children: string }) {
+  return (
+    <span className="contents">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // All block elements render as inline/contents
+          p: ({ children }) => <>{children}</>,
+          div: ({ children }) => <span className="contents">{children}</span>,
+          // Inline formatting
+          strong: ({ children }) => <strong>{children}</strong>,
+          em: ({ children }) => <em>{children}</em>,
+          // Links
+          a: props => (
+            <a
+              {...props}
+              className="text-blue-600 hover:text-blue-800 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            />
+          ),
+          // Code
+          code: props => {
+            const { children, className } = props;
+            const match = /language-(\w+)/.exec(className || '');
+            const isInline = !match;
+            if (isInline) {
+              return (
+                <code className="bg-gray-200 text-red-600 px-1.5 py-0.5 rounded text-xs font-mono">
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <SyntaxHighlighter
+                style={vscDarkPlus}
+                language={match[1]}
+                PreTag="div"
+                className="rounded-md !my-2"
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            );
+          },
+          // Lists - render inline to avoid line breaks within citations
+          ul: ({ children }) => <>{children}</>,
+          ol: ({ children }) => <>{children}</>,
+          li: ({ children }) => (
+            <>
+              <span className="mr-1">•</span>
+              {children}{' '}
+            </>
+          ),
+          // Headers - render as inline strong to avoid line breaks
+          h1: ({ children }) => <strong className="text-lg">{children}</strong>,
+          h2: ({ children }) => (
+            <strong className="text-base">{children}</strong>
+          ),
+          h3: ({ children }) => <strong className="text-sm">{children}</strong>,
+          h4: ({ children }) => <strong className="text-sm">{children}</strong>,
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
+  );
+}
+
+// Full markdown components for non-cited content (with proper block elements)
+const markdownComponents = {
+  p: ({ children }: { children: React.ReactNode }) => (
+    <p className="my-1.5">{children}</p>
+  ),
+  code(props: React.ComponentPropsWithoutRef<'code'>) {
+    const { children, className } = props;
+    const match = /language-(\w+)/.exec(className || '');
+    const isInline = !match;
+
+    if (isInline) {
+      return (
+        <code className="bg-gray-200 text-red-600 px-1.5 py-0.5 rounded text-xs font-mono">
+          {children}
+        </code>
+      );
+    }
+
+    return (
+      <SyntaxHighlighter
+        style={vscDarkPlus}
+        language={match[1]}
+        PreTag="div"
+        className="rounded-md !my-2"
+      >
+        {String(children).replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    );
+  },
+  a(props: React.ComponentPropsWithoutRef<'a'>) {
+    return (
+      <a
+        {...props}
+        className="text-blue-600 hover:text-blue-800 hover:underline"
+        target="_blank"
+        rel="noopener noreferrer"
+      />
+    );
+  },
+};
+
 /**
  * CitedText component renders text with interactive citation markers
  *
@@ -134,42 +244,7 @@ export function CitedText({
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={{
-          code(props) {
-            const { children, className } = props;
-            const match = /language-(\w+)/.exec(className || '');
-            const isInline = !match;
-
-            if (isInline) {
-              return (
-                <code className="bg-gray-200 text-red-600 px-1.5 py-0.5 rounded text-xs font-mono">
-                  {children}
-                </code>
-              );
-            }
-
-            return (
-              <SyntaxHighlighter
-                style={vscDarkPlus}
-                language={match[1]}
-                PreTag="div"
-                className="rounded-md !my-2"
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
-            );
-          },
-          a(props) {
-            return (
-              <a
-                {...props}
-                className="text-blue-600 hover:text-blue-800 hover:underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              />
-            );
-          },
-        }}
+        components={markdownComponents}
       >
         {content}
       </ReactMarkdown>
@@ -180,11 +255,12 @@ export function CitedText({
   const segments = parseTextSegments(content, groundingSupports);
 
   return (
-    <div className="space-y-2">
+    <>
       {segments.map((segment, index) => {
         const isCited = !!segment.chunkIndices;
 
         if (isCited) {
+          // Cited segment - use inline rendering to avoid line breaks
           return (
             <span
               key={index}
@@ -192,7 +268,7 @@ export function CitedText({
               onMouseEnter={() => setHoveredSegment(index)}
               onMouseLeave={() => setHoveredSegment(null)}
             >
-              {segment.text}
+              <InlineMarkdown>{segment.text}</InlineMarkdown>
               <ChunkTooltip
                 chunks={groundingChunks}
                 chunkIndices={segment.chunkIndices!}
@@ -202,9 +278,13 @@ export function CitedText({
           );
         }
 
-        // Uncited segment - render as plain text
-        return <span key={index}>{segment.text}</span>;
+        // Uncited segment - use inline rendering for consistency
+        return (
+          <span key={index} className="inline">
+            <InlineMarkdown>{segment.text}</InlineMarkdown>
+          </span>
+        );
       })}
-    </div>
+    </>
   );
 }

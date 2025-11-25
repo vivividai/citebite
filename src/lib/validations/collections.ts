@@ -22,6 +22,9 @@ export const createCollectionSchema = z
     useAiAssistant: z.boolean().default(false),
     naturalLanguageQuery: z.string().trim().optional(),
 
+    // Selected paper IDs from preview (optional - if not provided, all papers are included)
+    selectedPaperIds: z.array(z.string()).optional(),
+
     filters: z
       .object({
         yearFrom: optionalNumber(

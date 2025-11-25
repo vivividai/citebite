@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Loader2, Lock, Unlock, Sparkles } from 'lucide-react';
+import { Plus, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,35 +13,30 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { PaperPreviewDialog } from './PaperPreviewDialog';
 import { useCreateCollection } from '@/hooks/useCreateCollection';
-import { usePreviewCollection } from '@/hooks/usePreviewCollection';
+import {
+  usePreviewCollection,
+  type PreviewStats,
+} from '@/hooks/usePreviewCollection';
 import {
   createCollectionSchema,
   type CreateCollectionSchema,
 } from '@/lib/validations/collections';
+import type { PaperPreview } from '@/lib/search/types';
 import toast from 'react-hot-toast';
 
 export function CreateCollectionDialog() {
   const [open, setOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{
-    totalPapers: number;
-    openAccessPapers: number;
-    paywalledPapers: number;
+    papers: PaperPreview[];
+    stats: PreviewStats;
+    searchQuery: string;
   } | null>(null);
   const [pendingFormData, setPendingFormData] =
     useState<CreateCollectionSchema | null>(null);
@@ -125,12 +120,12 @@ export function CreateCollectionDialog() {
         // Store form data and preview stats
         setPendingFormData(submissionData);
         setPreviewData({
-          totalPapers: response.data.totalPapers,
-          openAccessPapers: response.data.openAccessPapers,
-          paywalledPapers: response.data.paywalledPapers,
+          papers: response.data.papers,
+          stats: response.data.stats,
+          searchQuery: response.data.searchQuery,
         });
-        // Show confirmation dialog
-        setConfirmOpen(true);
+        // Show preview dialog
+        setPreviewOpen(true);
       },
       onError: (error: Error) => {
         toast.error(error.message || 'Failed to preview collection');
@@ -138,25 +133,32 @@ export function CreateCollectionDialog() {
     });
   };
 
-  const handleConfirmCreate = () => {
+  const handleConfirmCreate = (selectedPaperIds: string[]) => {
     if (!pendingFormData) return;
 
-    createCollection(pendingFormData, {
-      onSuccess: () => {
-        setConfirmOpen(false);
-        setOpen(false);
-        reset();
-        setPendingFormData(null);
-        setPreviewData(null);
-        setUseAiAssistant(false);
-        setNaturalLanguageQuery('');
-        setSuggestedKeywords('');
+    // Create collection with selected papers
+    createCollection(
+      {
+        ...pendingFormData,
+        selectedPaperIds,
       },
-    });
+      {
+        onSuccess: () => {
+          setPreviewOpen(false);
+          setOpen(false);
+          reset();
+          setPendingFormData(null);
+          setPreviewData(null);
+          setUseAiAssistant(false);
+          setNaturalLanguageQuery('');
+          setSuggestedKeywords('');
+        },
+      }
+    );
   };
 
   const handleCancelCreate = () => {
-    setConfirmOpen(false);
+    setPreviewOpen(false);
     setPendingFormData(null);
     setPreviewData(null);
   };
@@ -463,62 +465,19 @@ export function CreateCollectionDialog() {
         </form>
       </DialogContent>
 
-      {/* Confirmation Dialog */}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Create Collection?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-4">
-                <p>
-                  Found <strong>{previewData?.totalPapers || 0}</strong> papers
-                  matching your search criteria:
-                </p>
-                <div className="space-y-2 rounded-lg border bg-muted/50 p-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Unlock className="h-4 w-4 text-green-600" />
-                    <span>
-                      <strong>{previewData?.openAccessPapers || 0}</strong> Open
-                      Access papers (PDFs will be auto-downloaded)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Lock className="h-4 w-4 text-amber-600" />
-                    <span>
-                      <strong>{previewData?.paywalledPapers || 0}</strong>{' '}
-                      Paywalled papers (PDFs must be manually uploaded)
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm">
-                  Do you want to create this collection?
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={handleCancelCreate}
-              disabled={isCreating}
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmCreate}
-              disabled={isCreating}
-            >
-              {isCreating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                'Create Collection'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Paper Preview Dialog */}
+      {previewData && (
+        <PaperPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          papers={previewData.papers}
+          stats={previewData.stats}
+          searchQuery={previewData.searchQuery}
+          isCreating={isCreating}
+          onConfirm={handleConfirmCreate}
+          onCancel={handleCancelCreate}
+        />
+      )}
     </Dialog>
   );
 }

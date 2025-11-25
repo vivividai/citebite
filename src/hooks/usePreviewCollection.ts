@@ -1,8 +1,11 @@
 import { useMutation } from '@tanstack/react-query';
+import type { PaperPreview } from '@/lib/search/types';
 
 export interface PreviewCollectionInput {
   name: string;
   keywords: string;
+  useAiAssistant?: boolean;
+  naturalLanguageQuery?: string;
   filters?: {
     yearFrom?: number;
     yearTo?: number;
@@ -11,12 +14,19 @@ export interface PreviewCollectionInput {
   };
 }
 
+export interface PreviewStats {
+  totalPapers: number;
+  openAccessPapers: number;
+  paywalledPapers: number;
+  papersWithEmbeddings: number;
+  rerankingApplied: boolean;
+}
+
 interface PreviewCollectionResponse {
   success: boolean;
   data: {
-    totalPapers: number;
-    openAccessPapers: number;
-    paywalledPapers: number;
+    papers: PaperPreview[];
+    stats: PreviewStats;
     searchQuery: string;
     filters: Record<string, unknown> | null;
   };

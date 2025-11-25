@@ -132,9 +132,19 @@ export async function POST(request: NextRequest) {
       openAccessOnly: validatedData.filters?.openAccessOnly,
     });
 
-    const papers = searchResult.papers;
+    let papers = searchResult.papers;
 
-    // 5. Handle empty search results
+    // 5. Filter by selectedPaperIds if provided
+    const selectedPaperIds = validatedData.selectedPaperIds;
+    if (selectedPaperIds && selectedPaperIds.length > 0) {
+      const selectedSet = new Set(selectedPaperIds);
+      papers = papers.filter(p => selectedSet.has(p.paperId));
+      console.log(
+        `[CollectionAPI] Filtered to ${papers.length} selected papers from ${searchResult.papers.length} total`
+      );
+    }
+
+    // 6. Handle empty search results
     if (papers.length === 0) {
       return NextResponse.json(
         {

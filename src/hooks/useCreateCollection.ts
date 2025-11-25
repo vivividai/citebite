@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 export interface CreateCollectionInput {
   name: string;
   keywords: string;
+  useAiAssistant?: boolean;
+  naturalLanguageQuery?: string;
+  selectedPaperIds?: string[];
   filters?: {
     yearFrom?: number;
     yearTo?: number;

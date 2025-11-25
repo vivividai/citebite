@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
 import { searchWithReranking } from '@/lib/search';
+import type { PaperPreview } from '@/lib/search/types';
 
 /**
  * POST /api/collections/preview
@@ -81,26 +82,52 @@ export async function POST(request: NextRequest) {
 
     const papers = searchResult.papers;
 
-    // 5. Count Open Access papers
-    const openAccessPapers = papers.filter(
-      paper => paper.openAccessPdf?.url != null
+    // 5. Transform papers to preview format
+    // Sort: papers with embeddings (by similarity desc) first, then papers without embeddings
+    const papersWithEmbedding = papers.filter(p => p.similarity !== undefined);
+    const papersWithoutEmbedding = papers.filter(
+      p => p.similarity === undefined
     );
 
-    // 6. Return preview statistics
+    const sortedPapers = [
+      ...papersWithEmbedding.sort(
+        (a, b) => (b.similarity ?? 0) - (a.similarity ?? 0)
+      ),
+      ...papersWithoutEmbedding,
+    ];
+
+    const previewPapers: PaperPreview[] = sortedPapers.map(paper => ({
+      paperId: paper.paperId,
+      title: paper.title,
+      authors: paper.authors?.map(a => ({ name: a.name })) || [],
+      year: paper.year ?? null,
+      abstract: paper.abstract ?? null,
+      citationCount: paper.citationCount ?? null,
+      venue: paper.venue ?? null,
+      similarity: paper.similarity ?? null,
+      hasEmbedding: paper.similarity !== undefined,
+      isOpenAccess: !!paper.openAccessPdf?.url,
+    }));
+
+    // 6. Count Open Access papers
+    const openAccessCount = papers.filter(
+      paper => paper.openAccessPdf?.url != null
+    ).length;
+
+    // 7. Return preview with full paper list
     return NextResponse.json({
       success: true,
       data: {
-        totalPapers: papers.length,
-        openAccessPapers: openAccessPapers.length,
-        paywalledPapers: papers.length - openAccessPapers.length,
-        searchQuery: validatedData.keywords,
-        filters: validatedData.filters || null,
-        // Re-ranking statistics
-        reranking: {
-          totalSearched: searchResult.stats.totalSearched,
+        papers: previewPapers,
+        stats: {
+          totalPapers: papers.length,
+          openAccessPapers: openAccessCount,
+          paywalledPapers: papers.length - openAccessCount,
           papersWithEmbeddings: searchResult.stats.papersWithEmbeddings,
           rerankingApplied: searchResult.stats.rerankingApplied,
         },
+        searchQuery: validatedData.keywords,
+        filters: validatedData.filters || null,
       },
     });
   } catch (error) {

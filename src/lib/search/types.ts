@@ -57,3 +57,22 @@ export interface SearchWithRerankingResult {
   /** Statistics about the re-ranking process */
   stats: RerankingStats;
 }
+
+/**
+ * Simplified paper data for preview display
+ */
+export interface PaperPreview {
+  paperId: string;
+  title: string;
+  authors: Array<{ name: string }>;
+  year: number | null;
+  abstract: string | null;
+  citationCount: number | null;
+  venue: string | null;
+  /** Cosine similarity to query (0-1). Null if paper has no SPECTER embedding */
+  similarity: number | null;
+  /** Whether paper has a SPECTER embedding for similarity calculation */
+  hasEmbedding: boolean;
+  /** Whether paper has Open Access PDF */
+  isOpenAccess: boolean;
+}

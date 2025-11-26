@@ -12,7 +12,7 @@ export interface SearchWithRerankingParams {
   userQuery: string;
   /** AI-generated search keywords for Semantic Scholar */
   searchKeywords: string;
-  /** Initial number of papers to fetch (default: 500) */
+  /** Maximum number of papers to fetch for re-ranking (default: 10000) */
   initialLimit?: number;
   /** Final number of papers to return after re-ranking (default: 100) */
   finalLimit?: number;
@@ -40,6 +40,8 @@ export interface PaperWithSimilarity extends Paper {
 export interface RerankingStats {
   /** Total papers fetched from Semantic Scholar */
   totalSearched: number;
+  /** Total papers available in Semantic Scholar for this query */
+  totalAvailable?: number;
   /** Number of papers that had SPECTER embeddings */
   papersWithEmbeddings: number;
   /** Whether re-ranking was successfully applied */

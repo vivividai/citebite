@@ -2,13 +2,13 @@
  * Search with Semantic Re-ranking Pipeline
  *
  * This module integrates:
- * 1. Semantic Scholar paper search (bulk API - no embeddings)
- * 2. Semantic Scholar batch API (to fetch embeddings)
+ * 1. Semantic Scholar paper search (bulk API with pagination - fetches ALL matching papers)
+ * 2. Semantic Scholar batch API with PARALLEL requests (to fetch embeddings efficiently)
  * 3. SPECTER API for user query embedding
  * 4. Cosine similarity calculation for re-ranking
  *
  * Note: The bulk search API does NOT support embedding field.
- * We use a two-step approach: search first, then batch fetch embeddings.
+ * We use a two-step approach: search first, then batch fetch embeddings in parallel.
  *
  * Fallback: If query embedding generation fails, returns papers in
  * keyword-match order (original Semantic Scholar relevance).
@@ -25,16 +25,16 @@ import type {
 } from './types';
 
 // Default limits
-const DEFAULT_INITIAL_LIMIT = 500;
-const DEFAULT_FINAL_LIMIT = 100;
+const DEFAULT_MAX_PAPERS = 10000; // Max papers to fetch from bulk search
+const DEFAULT_FINAL_LIMIT = 100; // Final number of papers to return after re-ranking
 
 /**
  * Search for papers and re-rank by semantic similarity to user query
  *
  * Pipeline:
- * 1. Search Semantic Scholar for papers (500 by default) - no embeddings
+ * 1. Search Semantic Scholar for ALL papers (up to maxPapers) using pagination
  * 2. Generate embedding for user query via SPECTER API (cached)
- * 3. Fetch embeddings for search results via batch API
+ * 3. Fetch embeddings for ALL search results via PARALLEL batch API calls
  * 4. Calculate cosine similarity between query and each paper
  * 5. Return top N papers sorted by similarity
  *
@@ -49,7 +49,7 @@ export async function searchWithReranking(
   const {
     userQuery,
     searchKeywords,
-    initialLimit = DEFAULT_INITIAL_LIMIT,
+    initialLimit = DEFAULT_MAX_PAPERS, // Now this means max papers to fetch
     finalLimit = DEFAULT_FINAL_LIMIT,
     yearFrom,
     yearTo,
@@ -59,23 +59,33 @@ export async function searchWithReranking(
 
   const client = getSemanticScholarClient();
 
+  console.log(`[Reranking] Starting search with re-ranking pipeline`);
+  console.log(
+    `[Reranking] Max papers to fetch: ${initialLimit}, Final limit: ${finalLimit}`
+  );
+
   // 1. Execute search and query embedding generation in parallel
-  // Note: bulk search does NOT support embedding field
-  const [searchResponse, queryEmbedding] = await Promise.all([
-    client.searchPapers({
-      keywords: searchKeywords,
-      limit: initialLimit,
-      yearFrom,
-      yearTo,
-      minCitations,
-      openAccessOnly,
-    }),
+  // searchAllPapers fetches ALL matching papers using token-based pagination
+  const [searchResult, queryEmbedding] = await Promise.all([
+    client.searchAllPapers(
+      {
+        keywords: searchKeywords,
+        yearFrom,
+        yearTo,
+        minCitations,
+        openAccessOnly,
+      },
+      initialLimit
+    ),
     generateQueryEmbedding(userQuery),
   ]);
 
-  const papers = searchResponse.data;
+  const papers = searchResult.papers;
+  const totalAvailable = searchResult.total;
 
-  console.log(`[Reranking] Fetched ${papers.length} papers from bulk search`);
+  console.log(
+    `[Reranking] Fetched ${papers.length} papers from bulk search (${totalAvailable} total available)`
+  );
 
   // 2. Handle fallback case: query embedding generation failed
   if (!queryEmbedding) {
@@ -86,6 +96,7 @@ export async function searchWithReranking(
       papers: papers.slice(0, finalLimit) as PaperWithSimilarity[],
       stats: {
         totalSearched: papers.length,
+        totalAvailable,
         papersWithEmbeddings: 0,
         rerankingApplied: false,
         fallbackReason: 'QUERY_EMBEDDING_FAILED',
@@ -93,10 +104,10 @@ export async function searchWithReranking(
     };
   }
 
-  // 3. Fetch embeddings via batch API
-  console.log('[Reranking] Fetching embeddings via batch API...');
+  // 3. Fetch embeddings via PARALLEL batch API
+  console.log('[Reranking] Fetching embeddings via parallel batch API...');
   const paperIds = papers.map(p => p.paperId);
-  const papersWithEmbeddings = await client.getPapersBatch(paperIds, {
+  const papersWithEmbeddings = await client.getPapersBatchParallel(paperIds, {
     includeEmbedding: true,
   });
 
@@ -127,6 +138,7 @@ export async function searchWithReranking(
       papers: papers.slice(0, finalLimit) as PaperWithSimilarity[],
       stats: {
         totalSearched: papers.length,
+        totalAvailable,
         papersWithEmbeddings: 0,
         rerankingApplied: false,
         fallbackReason: 'NO_PAPER_EMBEDDINGS',
@@ -142,13 +154,14 @@ export async function searchWithReranking(
   );
 
   console.log(
-    `[Reranking] Successfully re-ranked ${rankedPapers.length} papers`
+    `[Reranking] Successfully re-ranked ${rankedPapers.length} papers from ${papers.length} candidates`
   );
 
   return {
     papers: rankedPapers,
     stats: {
       totalSearched: papers.length,
+      totalAvailable,
       papersWithEmbeddings: validEmbeddingCount,
       rerankingApplied: true,
     },

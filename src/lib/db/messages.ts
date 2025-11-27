@@ -329,7 +329,9 @@ export async function getCitedPaperIds(
     if (message.cited_papers) {
       const citations = message.cited_papers as unknown as CitedPaper[];
       citations.forEach(citation => {
-        paperIds.add(citation.paperId);
+        if (citation.paperId) {
+          paperIds.add(citation.paperId);
+        }
       });
     }
   });
@@ -353,8 +355,10 @@ export async function getCitationStats(
     if (message.cited_papers) {
       const citations = message.cited_papers as unknown as CitedPaper[];
       citations.forEach(citation => {
-        citationCounts[citation.paperId] =
-          (citationCounts[citation.paperId] || 0) + 1;
+        if (citation.paperId) {
+          citationCounts[citation.paperId] =
+            (citationCounts[citation.paperId] || 0) + 1;
+        }
       });
     }
   });

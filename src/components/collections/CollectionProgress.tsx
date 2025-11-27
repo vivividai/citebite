@@ -34,9 +34,9 @@ export function CollectionProgress({
       const data = await res.json();
       return data.data;
     },
-    refetchInterval: data => {
+    refetchInterval: query => {
       // Stop polling if all processed
-      return data?.allProcessed ? false : 3000; // 3 seconds
+      return query.state.data?.allProcessed ? false : 3000; // 3 seconds
     },
     initialData: {
       totalPapers: initialTotal,

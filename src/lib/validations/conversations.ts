@@ -47,12 +47,14 @@ export const getMessagesSchema = z.object({
     .string()
     .datetime('Before must be a valid ISO datetime string')
     .optional()
-    .nullable(),
+    .nullable()
+    .transform(val => val ?? undefined),
   after: z
     .string()
     .datetime('After must be a valid ISO datetime string')
     .optional()
-    .nullable(),
+    .nullable()
+    .transform(val => val ?? undefined),
 });
 
 export type GetMessagesInput = z.infer<typeof getMessagesSchema>;

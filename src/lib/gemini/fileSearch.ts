@@ -99,8 +99,9 @@ export async function uploadPdfToStore(
     const client = getGeminiClient();
 
     try {
-      // Convert Buffer to Blob for the API
-      const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+      // Convert Buffer to Uint8Array then to Blob for the API
+      const uint8Array = new Uint8Array(pdfBuffer);
+      const blob = new Blob([uint8Array], { type: 'application/pdf' });
 
       // Upload file to the store
       const operation = await client.fileSearchStores.uploadToFileSearchStore({
@@ -151,7 +152,8 @@ export async function uploadPdfToStore(
           '[Gemini] Operation requires polling, but operations.get() is not reliable in SDK v1.29.1'
         );
         console.warn('[Gemini] Attempting polling anyway...');
-        const result = await pollOperation(operation, client);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await pollOperation(operation as any, client);
         if (result.success) {
           return {
             success: true,
@@ -166,7 +168,8 @@ export async function uploadPdfToStore(
       }
 
       // Fallback: try polling
-      const result = await pollOperation(operation, client);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await pollOperation(operation as any, client);
 
       if (result.success) {
         return {
@@ -226,11 +229,13 @@ export async function getFileSearchStore(storeId: string): Promise<{
       const store = await client.fileSearchStores.get({
         name: `fileSearchStores/${storeId}`,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storeAny = store as any;
       return {
         name: store.name || '',
         displayName: store.displayName,
-        metadata: store.customMetadata
-          ? convertCustomMetadataToRecord(store.customMetadata)
+        metadata: storeAny.customMetadata
+          ? convertCustomMetadataToRecord(storeAny.customMetadata)
           : undefined,
       };
     } catch (error) {
@@ -311,7 +316,8 @@ async function pollOperation(
   // Otherwise, poll until done
   while (attempts < MAX_POLLING_ATTEMPTS) {
     try {
-      const updatedOperation = await client.operations.get({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updatedOperation = await (client.operations as any).get({
         name: operation.name,
       });
 

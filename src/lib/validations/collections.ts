@@ -1,12 +1,6 @@
 import { z } from 'zod';
 
 /**
- * Helper to convert NaN to undefined for optional number fields
- */
-const optionalNumber = (schema: z.ZodNumber) =>
-  z.preprocess(val => (Number.isNaN(val) ? undefined : val), schema.optional());
-
-/**
  * Validation schema for collection creation
  */
 export const createCollectionSchema = z
@@ -27,18 +21,21 @@ export const createCollectionSchema = z
 
     filters: z
       .object({
-        yearFrom: optionalNumber(
-          z.number().int().min(1900, 'Year must be 1900 or later')
-        ),
-        yearTo: optionalNumber(
-          z
-            .number()
-            .int()
-            .max(new Date().getFullYear(), 'Year cannot be in the future')
-        ),
-        minCitations: optionalNumber(
-          z.number().int().min(0, 'Minimum citations must be non-negative')
-        ),
+        yearFrom: z.coerce
+          .number()
+          .int()
+          .min(1900, 'Year must be 1900 or later')
+          .optional(),
+        yearTo: z.coerce
+          .number()
+          .int()
+          .max(new Date().getFullYear(), 'Year cannot be in the future')
+          .optional(),
+        minCitations: z.coerce
+          .number()
+          .int()
+          .min(0, 'Minimum citations must be non-negative')
+          .optional(),
         openAccessOnly: z.boolean().optional(),
       })
       .optional()
@@ -72,11 +69,16 @@ export const createCollectionSchema = z
   );
 
 /**
- * TypeScript type inferred from the schema
+ * TypeScript type inferred from the schema (output type)
  */
 export type CreateCollectionInput = z.infer<typeof createCollectionSchema>;
 
 /**
- * Alias for backwards compatibility
+ * Input type for forms (allows optional useAiAssistant)
  */
-export type CreateCollectionSchema = CreateCollectionInput;
+export type CreateCollectionFormInput = z.input<typeof createCollectionSchema>;
+
+/**
+ * Alias for backwards compatibility - use input type for forms
+ */
+export type CreateCollectionSchema = CreateCollectionFormInput;

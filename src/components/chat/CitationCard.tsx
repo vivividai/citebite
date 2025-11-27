@@ -4,12 +4,10 @@ import { FileText } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-export interface CitedPaper {
-  paperId: string;
-  title: string;
-  relevanceScore?: number;
-  citedInContext?: string;
-}
+// Re-export CitedPaper from messages for consistent typing
+export type { CitedPaper } from '@/lib/db/messages';
+
+import { CitedPaper } from '@/lib/db/messages';
 
 interface CitationCardProps {
   paper: CitedPaper;

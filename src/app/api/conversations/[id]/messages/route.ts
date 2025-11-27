@@ -13,7 +13,7 @@ import {
   getMessagesByConversationWithCursor,
 } from '@/lib/db/messages';
 import { updateLastMessageAt } from '@/lib/db/conversations';
-import { queryWithFileSearch } from '@/lib/gemini/chat';
+import { queryWithTransform } from '@/lib/gemini/query-with-transform';
 
 /**
  * GET /api/conversations/[id]/messages
@@ -217,7 +217,7 @@ export async function POST(
 
     let aiResponse;
     try {
-      aiResponse = await queryWithFileSearch(
+      aiResponse = await queryWithTransform(
         collection.file_search_store_id,
         userMessage,
         formattedHistory

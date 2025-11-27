@@ -3,14 +3,14 @@ import toast from 'react-hot-toast';
 
 export interface CreateCollectionInput {
   name: string;
-  keywords: string;
+  keywords?: string;
   useAiAssistant?: boolean;
   naturalLanguageQuery?: string;
   selectedPaperIds?: string[];
   filters?: {
-    yearFrom?: number;
-    yearTo?: number;
-    minCitations?: number;
+    yearFrom?: number | unknown;
+    yearTo?: number | unknown;
+    minCitations?: number | unknown;
     openAccessOnly?: boolean;
   };
 }

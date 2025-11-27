@@ -37,9 +37,13 @@ export function ConversationItem({
 }: ConversationItemProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const createdAt = conversation.created_at
+    ? new Date(conversation.created_at)
+    : new Date();
+
   const [editTitle, setEditTitle] = useState(
     conversation.title ||
-      formatDistanceToNow(new Date(conversation.created_at), {
+      formatDistanceToNow(createdAt, {
         addSuffix: true,
         locale: ko,
       })
@@ -49,7 +53,7 @@ export function ConversationItem({
 
   const displayTitle =
     conversation.title ||
-    formatDistanceToNow(new Date(conversation.created_at), {
+    formatDistanceToNow(createdAt, {
       addSuffix: true,
       locale: ko,
     });

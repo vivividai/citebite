@@ -64,7 +64,7 @@ export function MessageInput({
             );
           }
 
-          targetConversationId = data.data.conversation.id;
+          targetConversationId = data.data.conversation.id as string;
           onConversationCreated?.(targetConversationId);
 
           // Invalidate conversations query to show new conversation in list

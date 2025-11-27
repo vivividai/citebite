@@ -3,13 +3,13 @@ import type { PaperPreview } from '@/lib/search/types';
 
 export interface PreviewCollectionInput {
   name: string;
-  keywords: string;
+  keywords?: string;
   useAiAssistant?: boolean;
   naturalLanguageQuery?: string;
   filters?: {
-    yearFrom?: number;
-    yearTo?: number;
-    minCitations?: number;
+    yearFrom?: number | unknown;
+    yearTo?: number | unknown;
+    minCitations?: number | unknown;
     openAccessOnly?: boolean;
   };
 }

@@ -187,7 +187,7 @@ function InlineMarkdown({ children }: { children: string }) {
 
 // Full markdown components for non-cited content (with proper block elements)
 const markdownComponents = {
-  p: ({ children }: { children: React.ReactNode }) => (
+  p: ({ children }: { children?: React.ReactNode }) => (
     <p className="my-1.5">{children}</p>
   ),
   code(props: React.ComponentPropsWithoutRef<'code'>) {

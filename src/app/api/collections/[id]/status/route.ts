@@ -75,7 +75,7 @@ export async function GET(
     let failedPapers = 0;
     let downloadingPapers = 0;
 
-    papers.forEach((item: { paper?: { vector_status?: string } }) => {
+    papers.forEach((item: { paper: { vector_status: string | null } }) => {
       const status = item.paper?.vector_status;
       if (status === 'completed') {
         indexedPapers++;

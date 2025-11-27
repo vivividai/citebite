@@ -89,6 +89,7 @@ export interface SearchResponse {
   total: number;
   offset: number;
   next?: number;
+  token?: string | null; // For bulk search pagination
   data: Paper[];
 }
 

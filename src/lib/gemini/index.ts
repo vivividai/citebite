@@ -25,6 +25,18 @@ export {
 export { queryWithFileSearch } from './chat';
 export type { ConversationMessage, ChatResponse } from './chat';
 
+// Query transformation pipeline
+export { queryWithTransform } from './query-with-transform';
+export { transformQuery } from './query-transform';
+export type { QueryTransformResult } from './query-transform';
+export { executeParallelQueries, hasEnoughResults } from './parallel-rag';
+export type { SubQueryResult } from './parallel-rag';
+export {
+  synthesizeResponses,
+  mergeGroundingData,
+  getBestSubQueryAnswer,
+} from './synthesis';
+
 // Prompts (for customization/testing)
 export {
   CITATION_SYSTEM_PROMPT,

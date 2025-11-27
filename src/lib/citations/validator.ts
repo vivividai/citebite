@@ -45,8 +45,10 @@ export async function validateAndEnrichCitations(
   }
 
   try {
-    // Extract unique paper IDs
-    const paperIds = [...new Set(citations.map(c => c.paperId))];
+    // Extract unique paper IDs (filter out undefined)
+    const paperIds = Array.from(
+      new Set(citations.map(c => c.paperId).filter((id): id is string => !!id))
+    );
 
     // Fetch papers from database
     const papers = await getPapersByIds(supabase, paperIds);
@@ -80,6 +82,12 @@ export async function validateAndEnrichCitations(
     const invalidPaperIds: string[] = [];
 
     for (const citation of citations) {
+      // Skip citations without paperId (grounding-based citations)
+      if (!citation.paperId) {
+        enrichedCitations.push(citation);
+        continue;
+      }
+
       const paper = paperMap.get(citation.paperId);
 
       if (paper) {

@@ -55,14 +55,15 @@ export async function POST(request: NextRequest) {
       : 100; // Default limit for final papers to return
 
     // Use naturalLanguageQuery for embedding, fallback to keywords
+    // Schema refine() guarantees at least one is present
     const userQuery =
-      validatedData.naturalLanguageQuery || validatedData.keywords;
+      validatedData.naturalLanguageQuery || validatedData.keywords || '';
 
     // Fetch ALL matching papers (up to 10,000) for comprehensive re-ranking
     // This ensures we find the most semantically relevant papers, not just the first batch
     const searchResult = await searchWithReranking({
       userQuery,
-      searchKeywords: validatedData.keywords,
+      searchKeywords: validatedData.keywords || '',
       // initialLimit now defaults to 10,000 - fetch all papers for re-ranking
       finalLimit: paperLimit,
       yearFrom: validatedData.filters?.yearFrom,

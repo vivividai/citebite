@@ -29,6 +29,8 @@ export type { ConversationMessage, ChatResponse } from './chat';
 export { queryWithTransform } from './query-with-transform';
 export { transformQuery } from './query-transform';
 export type { QueryTransformResult } from './query-transform';
+export { expandQueryForReranking } from './query-expand';
+export type { QueryExpansionResult } from './query-expand';
 export { executeParallelQueries, hasEnoughResults } from './parallel-rag';
 export type { SubQueryResult } from './parallel-rag';
 export { synthesizeResponses, getBestSubQueryAnswer } from './synthesis';

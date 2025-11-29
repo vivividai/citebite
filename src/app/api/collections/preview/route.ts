@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
 import { searchWithReranking } from '@/lib/search';
+import { expandQueryForReranking } from '@/lib/gemini/query-expand';
 import type { PaperPreview } from '@/lib/search/types';
 
 /**
@@ -56,13 +57,16 @@ export async function POST(request: NextRequest) {
 
     // Use naturalLanguageQuery for embedding, fallback to keywords
     // Schema refine() guarantees at least one is present
-    const userQuery =
+    const originalQuery =
       validatedData.naturalLanguageQuery || validatedData.keywords || '';
+
+    // Expand query for better SPECTER embedding similarity
+    const { expandedQuery } = await expandQueryForReranking(originalQuery);
 
     // Fetch ALL matching papers (up to 10,000) for comprehensive re-ranking
     // This ensures we find the most semantically relevant papers, not just the first batch
     const searchResult = await searchWithReranking({
-      userQuery,
+      userQuery: expandedQuery,
       searchKeywords: validatedData.keywords || '',
       // initialLimit now defaults to 10,000 - fetch all papers for re-ranking
       finalLimit: paperLimit,

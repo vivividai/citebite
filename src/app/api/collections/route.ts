@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
 import { searchWithReranking } from '@/lib/search';
+import { expandQueryForReranking } from '@/lib/gemini/query-expand';
 import { createFileSearchStore } from '@/lib/gemini/fileSearch';
 import { queuePdfDownload } from '@/lib/jobs/queues';
 import {
@@ -117,12 +118,15 @@ export async function POST(request: NextRequest) {
       : 100; // Default limit for final collection
 
     // Use naturalLanguageQuery for embedding, fallback to keywords
-    const userQuery = validatedData.naturalLanguageQuery || keywords;
+    const originalQuery = validatedData.naturalLanguageQuery || keywords;
+
+    // Expand query for better SPECTER embedding similarity
+    const { expandedQuery } = await expandQueryForReranking(originalQuery);
 
     console.log('[CollectionAPI] Using semantic re-ranking search');
 
     const searchResult = await searchWithReranking({
-      userQuery,
+      userQuery: expandedQuery,
       searchKeywords: keywords,
       initialLimit: 500, // Fetch more papers for re-ranking
       finalLimit: paperLimit,

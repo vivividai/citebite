@@ -150,18 +150,18 @@ function MatchReviewItem({
         <FileText className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="font-medium truncate">{result.filename}</p>
-          {result.extractedMetadata.doi && (
+          {result.extractedMetadata?.doi && (
             <p className="text-xs text-muted-foreground">
               DOI: {result.extractedMetadata.doi}
             </p>
           )}
-          {result.extractedMetadata.arxivId && (
+          {result.extractedMetadata?.arxivId && (
             <p className="text-xs text-muted-foreground">
               arXiv: {result.extractedMetadata.arxivId}
             </p>
           )}
-          {result.extractedMetadata.title &&
-            result.extractedMetadata.extractionMethod === 'title' && (
+          {result.extractedMetadata?.title &&
+            result.extractedMetadata?.extractionMethod === 'title' && (
               <p className="text-xs text-muted-foreground truncate">
                 Extracted title: {result.extractedMetadata.title}
               </p>
@@ -216,19 +216,26 @@ function MatchReviewItem({
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
             <div className="text-xs text-muted-foreground space-y-1 p-2 bg-muted/50 rounded">
-              <p>
-                <strong>Method:</strong>{' '}
-                {result.extractedMetadata.extractionMethod}
-              </p>
+              {result.extractedMetadata?.extractionMethod && (
+                <p>
+                  <strong>Method:</strong>{' '}
+                  {result.extractedMetadata.extractionMethod}
+                </p>
+              )}
               {result.match.score && (
                 <p>
                   <strong>Score:</strong>{' '}
                   {(result.match.score * 100).toFixed(1)}%
                 </p>
               )}
-              {result.extractedMetadata.title && (
+              {result.extractedMetadata?.title && (
                 <p className="truncate">
                   <strong>Extracted:</strong> {result.extractedMetadata.title}
+                </p>
+              )}
+              {!result.extractedMetadata && (
+                <p>
+                  <strong>Match Method:</strong> {result.match.matchMethod}
                 </p>
               )}
             </div>

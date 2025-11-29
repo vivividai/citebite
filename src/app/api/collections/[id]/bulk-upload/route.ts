@@ -2,21 +2,19 @@
  * Bulk PDF Upload API Route
  * POST /api/collections/[id]/bulk-upload
  *
- * Uploads multiple PDFs, extracts metadata, and matches to collection papers.
- * Returns match results for user review before confirmation.
+ * Uploads multiple PDFs and matches them to failed papers by searching
+ * paper DOI/title inside PDF content.
  */
 
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { uploadToTemp } from '@/lib/storage/supabaseStorage';
-import { extractMetadata } from '@/lib/pdf/metadata-extractor';
 import {
   matchPdfsToPapers,
   getUnmatchedPapers,
   Paper,
 } from '@/lib/pdf/matcher';
-import type { ExtractedMetadata } from '@/lib/pdf/metadata-extractor';
 import { v4 as uuidv4 } from 'uuid';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
@@ -34,13 +32,6 @@ interface BulkUploadResponse {
       paperTitle: string | null;
       confidence: 'high' | 'medium' | 'none';
       matchMethod: string;
-      score?: number;
-    };
-    extractedMetadata: {
-      doi?: string;
-      arxivId?: string;
-      title?: string;
-      extractionMethod: string;
     };
   }>;
   unmatchedPapers: Array<{ paperId: string; title: string }>;
@@ -79,7 +70,7 @@ export async function POST(
       );
     }
 
-    // 3. Get papers in collection that need PDFs
+    // 3. Get papers in collection
     const adminSupabase = createAdminSupabaseClient();
     const { data: collectionPapers, error: papersError } = await adminSupabase
       .from('collection_papers')
@@ -89,6 +80,7 @@ export async function POST(
         papers!inner (
           paper_id,
           title,
+          open_access_pdf_url,
           vector_status,
           storage_path
         )
@@ -104,12 +96,22 @@ export async function POST(
       );
     }
 
+    // Helper function to extract DOI from open_access_pdf_url
+    // e.g., "https://dl.acm.org/doi/pdf/10.1145/3644815.3644945" -> "10.1145/3644815.3644945"
+    function extractDoiFromUrl(url: string | null): string | null {
+      if (!url) return null;
+      // Match DOI pattern: 10.xxxx/... in the URL
+      const doiMatch = url.match(/10\.\d{4,}\/[^\s]+/);
+      return doiMatch ? doiMatch[0] : null;
+    }
+
     // Transform to Paper array
     type CollectionPaperRow = {
       paper_id: string;
       papers: {
         paper_id: string;
         title: string;
+        open_access_pdf_url: string | null;
         vector_status: string | null;
         storage_path: string | null;
       };
@@ -119,6 +121,8 @@ export async function POST(
     ).map(cp => ({
       paper_id: cp.papers.paper_id,
       title: cp.papers.title,
+      doi: extractDoiFromUrl(cp.papers.open_access_pdf_url),
+      external_ids: null,
       vector_status: cp.papers.vector_status,
       storage_path: cp.papers.storage_path,
     }));
@@ -163,12 +167,12 @@ export async function POST(
       );
     }
 
-    // 6. Process each file
+    // 6. Process each file - upload and collect buffers
     const processedFiles: Array<{
       fileId: string;
       filename: string;
       tempStorageKey: string;
-      metadata: ExtractedMetadata;
+      buffer: Buffer;
     }> = [];
     const errors: Array<{ filename: string; error: string }> = [];
 
@@ -199,18 +203,15 @@ export async function POST(
           continue;
         }
 
-        // Upload to temp storage
+        // Get buffer and upload to temp storage
         const buffer = Buffer.from(await file.arrayBuffer());
         const tempPath = await uploadToTemp(user.id, sessionId, fileId, buffer);
-
-        // Extract metadata
-        const extractionResult = await extractMetadata(buffer, file.name);
 
         processedFiles.push({
           fileId,
           filename: file.name,
           tempStorageKey: tempPath,
-          metadata: extractionResult.metadata,
+          buffer,
         });
       } catch (error) {
         console.error(`Error processing file ${file.name}:`, error);
@@ -221,14 +222,13 @@ export async function POST(
       }
     }
 
-    // 7. Match PDFs to papers
-    const matchResults = matchPdfsToPapers(processedFiles, papers);
+    // 7. Match PDFs to papers (searches DOI/title in PDF content)
+    const matchResults = await matchPdfsToPapers(processedFiles, papers);
 
     // 8. Get papers that still need PDFs (not matched)
     const unmatchedPapers = getUnmatchedPapers(papers, matchResults);
 
     // 9. Update session with results
-    // Serialize to JSON-compatible format for JSONB column
     const sessionFiles = matchResults.map(result => ({
       fileId: result.fileId,
       filename: result.filename,
@@ -240,13 +240,6 @@ export async function POST(
         paperTitle: result.match.paperTitle,
         confidence: result.match.confidence,
         matchMethod: result.match.matchMethod,
-        score: result.match.score,
-      },
-      extractedMetadata: {
-        doi: result.extractedMetadata.doi,
-        arxivId: result.extractedMetadata.arxivId,
-        title: result.extractedMetadata.title,
-        extractionMethod: result.extractedMetadata.extractionMethod,
       },
     }));
 
@@ -267,12 +260,6 @@ export async function POST(
         filename: r.filename,
         tempStorageKey: r.tempStorageKey,
         match: r.match,
-        extractedMetadata: {
-          doi: r.extractedMetadata.doi,
-          arxivId: r.extractedMetadata.arxivId,
-          title: r.extractedMetadata.title,
-          extractionMethod: r.extractedMetadata.extractionMethod,
-        },
       })),
       unmatchedPapers,
       errors,

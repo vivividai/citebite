@@ -1,15 +1,15 @@
 /**
  * PDF to Paper Matching Algorithm
- * Task 3.5.2: Match uploaded PDFs to papers in collection
+ * Task 3.5.2: Match uploaded PDFs to failed papers in collection
  *
- * Matching priority:
- * 1. DOI exact match (high confidence)
- * 2. arXiv ID exact match (high confidence)
- * 3. Title similarity match (medium/high confidence based on score)
- * 4. No match found (manual selection required)
+ * Strategy: Search paper's DOI/title inside PDF content
+ * - More reliable than extracting metadata from PDF
+ * - DOI is unique identifier, title is always present in PDF
  */
 
-import { ExtractedMetadata } from './metadata-extractor';
+// pdf-parse v1.x - use require for CommonJS compatibility
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse');
 
 export interface Paper {
   paper_id: string;
@@ -25,14 +25,13 @@ export interface Paper {
 }
 
 export type MatchConfidence = 'high' | 'medium' | 'none';
-export type MatchMethod = 'doi' | 'arxiv' | 'title' | 'filename' | 'manual';
+export type MatchMethod = 'doi' | 'title' | 'none';
 
 export interface MatchResult {
   paperId: string | null;
   paperTitle: string | null;
   confidence: MatchConfidence;
   matchMethod: MatchMethod;
-  score?: number; // Similarity score for title matching (0-1)
 }
 
 export interface FileMatchResult {
@@ -40,253 +39,247 @@ export interface FileMatchResult {
   filename: string;
   tempStorageKey: string;
   match: MatchResult;
-  extractedMetadata: ExtractedMetadata;
 }
 
 /**
- * Normalize string for comparison
- * Converts to lowercase, removes punctuation, normalizes whitespace
+ * Normalize text for comparison
+ * - Lowercase
+ * - Remove extra whitespace
+ * - Remove common punctuation variations
  */
-function normalizeForComparison(str: string): string {
-  return str
+function normalizeText(text: string): string {
+  return text
     .toLowerCase()
-    .replace(/[^\w\s]/g, ' ') // Remove punctuation
+    .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
     .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/['']/g, "'") // Normalize quotes
+    .replace(/[""]/g, '"')
+    .replace(/–/g, '-') // Normalize dashes
+    .replace(/—/g, '-')
     .trim();
 }
 
 /**
- * Calculate word-based Jaccard similarity between two strings
- * Returns a score between 0 and 1
+ * Extract text content from PDF buffer
  */
-function calculateJaccardSimilarity(a: string, b: string): number {
-  const wordsA = new Set(
-    normalizeForComparison(a)
-      .split(' ')
-      .filter(w => w.length > 2)
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  try {
+    // pdf-parse v1.x - simple function call with buffer
+    const data = await pdfParse(buffer);
+    return data.text || '';
+  } catch (error) {
+    console.error('PDF text extraction failed:', error);
+    return '';
+  }
+}
+
+/**
+ * Check if paper's DOI exists in PDF content
+ */
+function matchByDoi(paperDoi: string, pdfText: string): boolean {
+  // DOI is case-insensitive
+  const normalizedDoi = paperDoi.toLowerCase();
+  const normalizedText = pdfText.toLowerCase();
+
+  return normalizedText.includes(normalizedDoi);
+}
+
+/**
+ * Check if paper's title exists in PDF content
+ */
+function matchByTitle(paperTitle: string, pdfText: string): boolean {
+  const normalizedTitle = normalizeText(paperTitle);
+  const normalizedText = normalizeText(pdfText);
+
+  // Direct inclusion check
+  if (normalizedText.includes(normalizedTitle)) {
+    return true;
+  }
+
+  // Try matching first N words (handles subtitle variations)
+  const titleWords = normalizedTitle.split(' ').filter(w => w.length > 2);
+  if (titleWords.length >= 5) {
+    const partialTitle = titleWords
+      .slice(0, Math.min(8, titleWords.length))
+      .join(' ');
+    if (normalizedText.includes(partialTitle)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get papers that need PDFs (failed or pending status only)
+ * Note: Only include papers that actually failed, not just those without storage_path
+ */
+function getFailedPapers(papers: Paper[]): Paper[] {
+  return papers.filter(
+    p => p.vector_status === 'failed' || p.vector_status === 'pending'
   );
-  const wordsB = new Set(
-    normalizeForComparison(b)
-      .split(' ')
-      .filter(w => w.length > 2)
-  );
-
-  if (wordsA.size === 0 || wordsB.size === 0) return 0;
-
-  const intersection = new Set(Array.from(wordsA).filter(w => wordsB.has(w)));
-  const union = new Set([...Array.from(wordsA), ...Array.from(wordsB)]);
-
-  return intersection.size / union.size;
 }
 
 /**
- * Calculate n-gram based similarity for better fuzzy matching
- * Uses character trigrams for partial matches
+ * Get DOI from paper (handles both direct doi and external_ids)
  */
-function calculateNgramSimilarity(a: string, b: string, n: number = 3): number {
-  const aNorm = normalizeForComparison(a);
-  const bNorm = normalizeForComparison(b);
-
-  if (aNorm.length < n || bNorm.length < n) {
-    return calculateJaccardSimilarity(a, b);
-  }
-
-  const getNgrams = (str: string): Set<string> => {
-    const ngrams = new Set<string>();
-    for (let i = 0; i <= str.length - n; i++) {
-      ngrams.add(str.slice(i, i + n));
-    }
-    return ngrams;
-  };
-
-  const ngramsA = getNgrams(aNorm);
-  const ngramsB = getNgrams(bNorm);
-
-  const intersection = new Set(
-    Array.from(ngramsA).filter(ng => ngramsB.has(ng))
-  );
-  const union = new Set([...Array.from(ngramsA), ...Array.from(ngramsB)]);
-
-  return intersection.size / union.size;
+function getPaperDoi(paper: Paper): string | null {
+  return paper.doi || paper.external_ids?.DOI || null;
 }
 
 /**
- * Combined similarity score using multiple methods
+ * Match multiple PDFs to papers by searching paper info in PDF content
  */
-function calculateSimilarity(a: string, b: string): number {
-  const jaccardScore = calculateJaccardSimilarity(a, b);
-  const ngramScore = calculateNgramSimilarity(a, b);
-
-  // Weighted average: Jaccard for overall word match, n-gram for partial matches
-  return jaccardScore * 0.6 + ngramScore * 0.4;
-}
-
-/**
- * Find the best title match among papers
- */
-function findBestTitleMatch(
-  title: string,
-  papers: Paper[]
-): { paper: Paper; score: number } | null {
-  if (!title || papers.length === 0) return null;
-
-  let bestMatch: { paper: Paper; score: number } | null = null;
-
-  for (const paper of papers) {
-    const score = calculateSimilarity(title, paper.title);
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { paper, score };
-    }
-  }
-
-  return bestMatch;
-}
-
-/**
- * Match a PDF to a paper in the collection based on extracted metadata
- *
- * @param metadata - Extracted metadata from PDF
- * @param collectionPapers - All papers in the collection
- * @param filterToFailed - If true, only match against papers needing PDFs
- * @returns Match result with confidence level
- */
-export function matchPdfToPaper(
-  metadata: ExtractedMetadata,
-  collectionPapers: Paper[],
-  filterToFailed: boolean = true
-): MatchResult {
-  // Filter to papers that need PDFs
-  const candidates = filterToFailed
-    ? collectionPapers.filter(
-        p =>
-          p.vector_status === 'failed' ||
-          p.vector_status === 'pending' ||
-          !p.storage_path
-      )
-    : collectionPapers;
-
-  if (candidates.length === 0) {
-    return {
-      paperId: null,
-      paperTitle: null,
-      confidence: 'none',
-      matchMethod: 'manual',
-    };
-  }
-
-  // 1. DOI exact match (highest confidence)
-  if (metadata.doi) {
-    const normalizedDoi = metadata.doi.toLowerCase();
-    const match = candidates.find(p => {
-      const paperDoi =
-        p.doi?.toLowerCase() || p.external_ids?.DOI?.toLowerCase();
-      return paperDoi === normalizedDoi;
-    });
-
-    if (match) {
-      return {
-        paperId: match.paper_id,
-        paperTitle: match.title,
-        confidence: 'high',
-        matchMethod: 'doi',
-        score: 1.0,
-      };
-    }
-  }
-
-  // 2. arXiv ID exact match (high confidence)
-  if (metadata.arxivId) {
-    const normalizedArxiv = metadata.arxivId.toLowerCase().replace(/v\d+$/, ''); // Remove version
-    const match = candidates.find(p => {
-      const paperArxiv = p.external_ids?.ArXiv?.toLowerCase().replace(
-        /v\d+$/,
-        ''
-      );
-      return paperArxiv === normalizedArxiv;
-    });
-
-    if (match) {
-      return {
-        paperId: match.paper_id,
-        paperTitle: match.title,
-        confidence: 'high',
-        matchMethod: 'arxiv',
-        score: 1.0,
-      };
-    }
-  }
-
-  // 3. Title similarity match
-  if (metadata.title) {
-    const bestMatch = findBestTitleMatch(metadata.title, candidates);
-
-    if (bestMatch && bestMatch.score > 0.5) {
-      // Threshold for considering a match
-      const confidence: MatchConfidence =
-        bestMatch.score > 0.8 ? 'high' : 'medium';
-      const matchMethod: MatchMethod =
-        metadata.extractionMethod === 'filename' ? 'filename' : 'title';
-
-      return {
-        paperId: bestMatch.paper.paper_id,
-        paperTitle: bestMatch.paper.title,
-        confidence,
-        matchMethod,
-        score: bestMatch.score,
-      };
-    }
-  }
-
-  // 4. No match found
-  return {
-    paperId: null,
-    paperTitle: null,
-    confidence: 'none',
-    matchMethod: 'manual',
-  };
-}
-
-/**
- * Match multiple PDFs to papers in collection
- *
- * @param files - Array of file metadata results
- * @param collectionPapers - All papers in the collection
- * @returns Array of match results
- */
-export function matchPdfsToPapers(
+export async function matchPdfsToPapers(
   files: Array<{
     fileId: string;
     filename: string;
     tempStorageKey: string;
-    metadata: ExtractedMetadata;
+    buffer: Buffer;
   }>,
   collectionPapers: Paper[]
-): FileMatchResult[] {
-  // Track which papers have been matched to avoid duplicates
-  const matchedPaperIds = new Set<string>();
+): Promise<FileMatchResult[]> {
+  const failedPapers = getFailedPapers(collectionPapers);
 
-  return files.map(file => {
-    // Filter out already matched papers for unique matching
-    const availablePapers = collectionPapers.filter(
-      p => !matchedPaperIds.has(p.paper_id)
-    );
+  console.log('[matcher] Total papers:', collectionPapers.length);
+  console.log('[matcher] Failed papers needing PDFs:', failedPapers.length);
+  console.log(
+    '[matcher] Failed papers:',
+    failedPapers.map(p => ({
+      id: p.paper_id,
+      title: p.title.substring(0, 50),
+      doi: p.doi,
+      vector_status: p.vector_status,
+      storage_path: p.storage_path,
+    }))
+  );
 
-    const match = matchPdfToPaper(file.metadata, availablePapers, true);
-
-    // Mark paper as matched if found
-    if (match.paperId) {
-      matchedPaperIds.add(match.paperId);
-    }
-
-    return {
+  if (failedPapers.length === 0) {
+    // No papers need PDFs, return all as unmatched
+    return files.map(file => ({
       fileId: file.fileId,
       filename: file.filename,
       tempStorageKey: file.tempStorageKey,
-      match,
-      extractedMetadata: file.metadata,
-    };
+      match: {
+        paperId: null,
+        paperTitle: null,
+        confidence: 'none' as MatchConfidence,
+        matchMethod: 'none' as MatchMethod,
+      },
+    }));
+  }
+
+  // Extract text from all PDFs in parallel
+  const pdfTexts = await Promise.all(
+    files.map(async file => ({
+      fileId: file.fileId,
+      filename: file.filename,
+      tempStorageKey: file.tempStorageKey,
+      text: await extractPdfText(file.buffer),
+    }))
+  );
+
+  // Log PDF text extraction results
+  for (const pdfData of pdfTexts) {
+    console.log(
+      `[matcher] PDF "${pdfData.filename}" text length: ${pdfData.text.length}`
+    );
+    if (pdfData.text.length > 0) {
+      console.log(
+        `[matcher] PDF "${pdfData.filename}" first 500 chars:`,
+        pdfData.text.substring(0, 500)
+      );
+    }
+  }
+
+  const results: FileMatchResult[] = [];
+  const matchedPaperIds = new Set<string>();
+  const matchedFileIds = new Set<string>();
+
+  // Sort papers: those with DOI first (DOI matching is more reliable than title matching)
+  const sortedPapers = [...failedPapers].sort((a, b) => {
+    const aHasDoi = getPaperDoi(a) !== null;
+    const bHasDoi = getPaperDoi(b) !== null;
+    if (aHasDoi && !bHasDoi) return -1;
+    if (!aHasDoi && bHasDoi) return 1;
+    return 0;
   });
+
+  // For each failed paper, find matching PDF
+  for (const paper of sortedPapers) {
+    if (matchedPaperIds.has(paper.paper_id)) continue;
+
+    const paperDoi = getPaperDoi(paper);
+    console.log(
+      `[matcher] Searching for paper: "${paper.title.substring(0, 50)}..." DOI: ${paperDoi}`
+    );
+
+    for (const pdfData of pdfTexts) {
+      if (matchedFileIds.has(pdfData.fileId)) continue;
+      if (!pdfData.text) continue;
+
+      // 1st priority: DOI match (100% confidence)
+      if (paperDoi) {
+        const doiFound = matchByDoi(paperDoi, pdfData.text);
+        console.log(
+          `[matcher] DOI "${paperDoi}" in "${pdfData.filename}": ${doiFound}`
+        );
+      }
+      if (paperDoi && matchByDoi(paperDoi, pdfData.text)) {
+        results.push({
+          fileId: pdfData.fileId,
+          filename: pdfData.filename,
+          tempStorageKey: pdfData.tempStorageKey,
+          match: {
+            paperId: paper.paper_id,
+            paperTitle: paper.title,
+            confidence: 'high',
+            matchMethod: 'doi',
+          },
+        });
+        matchedPaperIds.add(paper.paper_id);
+        matchedFileIds.add(pdfData.fileId);
+        break;
+      }
+
+      // 2nd priority: Title match (high confidence)
+      if (matchByTitle(paper.title, pdfData.text)) {
+        results.push({
+          fileId: pdfData.fileId,
+          filename: pdfData.filename,
+          tempStorageKey: pdfData.tempStorageKey,
+          match: {
+            paperId: paper.paper_id,
+            paperTitle: paper.title,
+            confidence: 'high',
+            matchMethod: 'title',
+          },
+        });
+        matchedPaperIds.add(paper.paper_id);
+        matchedFileIds.add(pdfData.fileId);
+        break;
+      }
+    }
+  }
+
+  // Add unmatched files
+  for (const pdfData of pdfTexts) {
+    if (!matchedFileIds.has(pdfData.fileId)) {
+      results.push({
+        fileId: pdfData.fileId,
+        filename: pdfData.filename,
+        tempStorageKey: pdfData.tempStorageKey,
+        match: {
+          paperId: null,
+          paperTitle: null,
+          confidence: 'none',
+          matchMethod: 'none',
+        },
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -300,14 +293,7 @@ export function getUnmatchedPapers(
     matchResults.filter(r => r.match.paperId).map(r => r.match.paperId!)
   );
 
-  return collectionPapers
-    .filter(p => {
-      const needsPdf =
-        p.vector_status === 'failed' ||
-        p.vector_status === 'pending' ||
-        !p.storage_path;
-      const notMatched = !matchedPaperIds.has(p.paper_id);
-      return needsPdf && notMatched;
-    })
+  return getFailedPapers(collectionPapers)
+    .filter(p => !matchedPaperIds.has(p.paper_id))
     .map(p => ({ paperId: p.paper_id, title: p.title }));
 }

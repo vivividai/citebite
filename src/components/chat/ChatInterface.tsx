@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { ConversationList } from './ConversationList';
+import { useSendMessage } from '@/hooks/useSendMessage';
 
 interface ChatInterfaceProps {
   collectionId: string;
@@ -17,6 +18,9 @@ export function ChatInterface({
   const [conversationId, setConversationId] = useState<string | null>(
     initialConversationId || null
   );
+
+  // Shared sendMessage mutation for optimistic UI and pending state
+  const sendMessage = useSendMessage();
 
   const handleStartNewConversation = () => {
     // Don't create conversation immediately, just set to null
@@ -43,8 +47,12 @@ export function ChatInterface({
             <MessageList
               conversationId={conversationId}
               collectionId={collectionId}
+              isPending={sendMessage.isPending}
             />
-            <MessageInput conversationId={conversationId} />
+            <MessageInput
+              conversationId={conversationId}
+              sendMessageMutation={sendMessage}
+            />
           </>
         ) : (
           <>
@@ -59,6 +67,7 @@ export function ChatInterface({
               conversationId={null}
               collectionId={collectionId}
               onConversationCreated={setConversationId}
+              sendMessageMutation={sendMessage}
             />
           </>
         )}

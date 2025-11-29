@@ -1,5 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { Database } from '@/types/database.types';
+
+type Message = Database['public']['Tables']['messages']['Row'];
 
 export interface SendMessageInput {
   conversationId: string;
@@ -32,8 +35,23 @@ interface SendMessageResponse {
   };
 }
 
+interface MessagesData {
+  messages: Message[];
+  pagination: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor?: string;
+    prevCursor?: string;
+  };
+}
+
+interface MutationContext {
+  previousMessages: MessagesData | undefined;
+}
+
 /**
  * Hook to send a message in a conversation
+ * Includes optimistic UI updates - user message appears immediately
  */
 export function useSendMessage() {
   const queryClient = useQueryClient();
@@ -61,8 +79,69 @@ export function useSendMessage() {
 
       return responseData;
     },
-    onSuccess: (data, variables) => {
-      // Invalidate messages query to refetch the list
+
+    onMutate: async ({ conversationId, content }): Promise<MutationContext> => {
+      // Cancel any outgoing refetches to prevent overwriting optimistic update
+      await queryClient.cancelQueries({
+        queryKey: ['conversations', conversationId, 'messages'],
+      });
+
+      // Get the query key with default pagination options
+      const queryKey = [
+        'conversations',
+        conversationId,
+        'messages',
+        { limit: 50, before: undefined, after: undefined },
+      ];
+
+      // Snapshot the previous value
+      const previousMessages = queryClient.getQueryData<MessagesData>(queryKey);
+
+      // Optimistically add user message
+      const optimisticMessage: Message = {
+        id: `temp-${Date.now()}`,
+        conversation_id: conversationId,
+        role: 'user',
+        content,
+        cited_papers: null,
+        timestamp: new Date().toISOString(),
+      };
+
+      queryClient.setQueryData<MessagesData>(queryKey, old => {
+        if (!old) {
+          return {
+            messages: [optimisticMessage],
+            pagination: { limit: 50, hasMore: false },
+          };
+        }
+        return {
+          ...old,
+          messages: [...old.messages, optimisticMessage],
+        };
+      });
+
+      // Return context with previous value for rollback
+      return { previousMessages };
+    },
+
+    onError: (error: Error, variables, context) => {
+      // Rollback to previous state on error
+      if (context?.previousMessages) {
+        const queryKey = [
+          'conversations',
+          variables.conversationId,
+          'messages',
+          { limit: 50, before: undefined, after: undefined },
+        ];
+        queryClient.setQueryData(queryKey, context.previousMessages);
+      }
+
+      // Show error toast
+      toast.error(error.message || 'Failed to send message');
+    },
+
+    onSettled: (_data, _error, variables) => {
+      // Always refetch after mutation settles to ensure server state is synced
       queryClient.invalidateQueries({
         queryKey: ['conversations', variables.conversationId, 'messages'],
       });
@@ -71,10 +150,6 @@ export function useSendMessage() {
       queryClient.invalidateQueries({
         queryKey: ['conversations', variables.conversationId],
       });
-    },
-    onError: (error: Error) => {
-      // Show error toast
-      toast.error(error.message || 'Failed to send message');
     },
   });
 }

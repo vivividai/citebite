@@ -5,27 +5,30 @@ import { Loader2, MessageSquare } from 'lucide-react';
 import { useMessages } from '@/hooks/useMessages';
 import { UserMessage } from './UserMessage';
 import { AssistantMessage } from './AssistantMessage';
+import { PendingSteps } from './PendingSteps';
 import { CitedPaper } from './CitationCard';
 
 interface MessageListProps {
   conversationId: string;
   collectionId: string;
+  isPending?: boolean;
 }
 
 export function MessageList({
   conversationId,
   collectionId,
+  isPending = false,
 }: MessageListProps) {
   const { data, isLoading, error } = useMessages(conversationId);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or pending state changes
   useEffect(() => {
-    if (data?.messages && messagesEndRef.current) {
+    if ((data?.messages || isPending) && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [data?.messages]);
+  }, [data?.messages, isPending]);
 
   if (isLoading) {
     return (
@@ -115,6 +118,7 @@ export function MessageList({
           />
         );
       })}
+      {isPending && <PendingSteps />}
       <div ref={messagesEndRef} />
     </div>
   );

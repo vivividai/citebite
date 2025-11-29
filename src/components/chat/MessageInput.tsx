@@ -1,17 +1,20 @@
 'use client';
 
-import { useState, KeyboardEvent, FormEvent } from 'react';
+import { useState, KeyboardEvent, FormEvent, useRef } from 'react';
 import { Send, Loader2, AlertCircle } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useQueryClient } from '@tanstack/react-query';
 
+type SendMessageMutation = ReturnType<typeof useSendMessage>;
+
 interface MessageInputProps {
   conversationId: string | null;
   collectionId?: string;
   onConversationCreated?: (conversationId: string) => void;
   disabled?: boolean;
+  sendMessageMutation?: SendMessageMutation;
 }
 
 export function MessageInput({
@@ -19,12 +22,15 @@ export function MessageInput({
   collectionId,
   onConversationCreated,
   disabled = false,
+  sendMessageMutation,
 }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
-  const sendMessage = useSendMessage();
+  const internalSendMessage = useSendMessage();
+  const sendMessage = sendMessageMutation || internalSendMessage;
   const queryClient = useQueryClient();
+  const lastSentMessageRef = useRef<string | null>(null);
 
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -34,6 +40,11 @@ export function MessageInput({
       return;
 
     setError(null);
+
+    // Clear input immediately for better UX (optimistic UI)
+    const messageToSend = trimmedMessage;
+    setMessage('');
+    lastSentMessageRef.current = messageToSend;
 
     try {
       let targetConversationId = conversationId;
@@ -81,10 +92,15 @@ export function MessageInput({
       // Send message to the conversation
       await sendMessage.mutateAsync({
         conversationId: targetConversationId,
-        content: trimmedMessage,
+        content: messageToSend,
       });
-      setMessage(''); // Clear input on success
+      lastSentMessageRef.current = null;
     } catch (err) {
+      // Restore message on error so user can retry
+      if (lastSentMessageRef.current) {
+        setMessage(lastSentMessageRef.current);
+        lastSentMessageRef.current = null;
+      }
       setError(err instanceof Error ? err.message : 'Failed to send message');
     }
   };

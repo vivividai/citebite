@@ -21,9 +21,11 @@ import {
   Download,
 } from 'lucide-react';
 import { PaperAbstractModal } from './PaperAbstractModal';
+import { PdfUploadButton } from '@/components/papers/PdfUploadButton';
 
 interface PaperCardProps {
   paper: Paper;
+  collectionId?: string;
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -62,7 +64,7 @@ function StatusBadge({ status }: { status: string | null }) {
   );
 }
 
-export function PaperCard({ paper }: PaperCardProps) {
+export function PaperCard({ paper, collectionId }: PaperCardProps) {
   const [abstractModalOpen, setAbstractModalOpen] = useState(false);
   const authorNames =
     paper.authors?.map(a => a.name).join(', ') || 'Unknown authors';
@@ -126,6 +128,13 @@ export function PaperCard({ paper }: PaperCardProps) {
                   Download PDF
                 </a>
               </Button>
+            )}
+            {/* Show Upload PDF button for failed papers (non-Open Access that couldn't be auto-downloaded) */}
+            {paper.vector_status === 'failed' && collectionId && (
+              <PdfUploadButton
+                paperId={paper.paper_id}
+                collectionId={collectionId}
+              />
             )}
           </div>
         </CardContent>

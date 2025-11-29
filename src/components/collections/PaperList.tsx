@@ -216,7 +216,11 @@ export function PaperList({ collectionId }: PaperListProps) {
       ) : (
         <div className="grid gap-4">
           {filteredAndSortedPapers.map((paper: Paper) => (
-            <PaperCard key={paper.paper_id} paper={paper} />
+            <PaperCard
+              key={paper.paper_id}
+              paper={paper}
+              collectionId={collectionId}
+            />
           ))}
         </div>
       )}

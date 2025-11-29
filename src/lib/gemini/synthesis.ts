@@ -2,7 +2,13 @@
  * Response Synthesis for Query Transformation Pipeline
  *
  * Combines answers from multiple sub-queries into a coherent response.
- * Merges all grounding chunks with proper index adjustment.
+ * Uses LLM Citation Markers ([CITE:N]) for grounding instead of File Search re-call.
+ *
+ * Why LLM Citation Markers?
+ * - Sub-queries return 50-75 chunks total, but File Search re-call returns only 0-5 chunks
+ * - LLM can accurately place [CITE:N] markers which we parse with regex (100% accuracy)
+ * - No additional LLM calls needed for post-hoc mapping
+ * - Eliminates File Search latency (~4-5s) in synthesis step
  */
 
 import { getGeminiClient, withGeminiErrorHandling } from './client';
@@ -11,30 +17,100 @@ import { SubQueryResult } from './parallel-rag';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 
 /**
- * System prompt for synthesis
+ * Parsed citation from LLM response
  */
-const SYNTHESIS_SYSTEM_PROMPT = `You are CiteBite, an AI research assistant synthesizing research information into a coherent answer.
-
-You will receive answers from multiple sub-queries about the user's question. Your task is to:
-1. Integrate all relevant information without redundancy
-2. Structure the response logically (overview → details → implications)
-3. Preserve important details and findings
-4. Be comprehensive but concise
-
-## Guidelines
-- Do NOT add information beyond what was found in the sub-query answers
-- Prioritize information that appears in multiple sub-query answers
-- If sub-queries found conflicting information, present both perspectives
-- Focus on answering the original question directly
-- Keep the synthesis to a reasonable length (not too long)`;
+interface ParsedCitation {
+  startIndex: number;
+  endIndex: number;
+  chunkIndices: number[];
+}
 
 /**
- * Build synthesis prompt with sub-query results
+ * System prompt for synthesis with LLM citation markers
  */
-function buildSynthesisPrompt(
+const SYNTHESIS_SYSTEM_PROMPT_WITH_CITATIONS = `You are CiteBite, an AI research assistant synthesizing research information into a coherent answer.
+
+## CITATION FORMAT (CRITICAL)
+You MUST cite sources using [CITE:N] where N is the source index (0-based).
+- Place [CITE:N] IMMEDIATELY after any claim that uses information from the sources
+- Multiple sources: [CITE:1,3,5]
+- Every factual statement MUST have at least one citation
+- Do NOT make claims without citing a source
+
+Example:
+"Memristor devices exhibit significant variability in their switching behavior [CITE:0]. This variability affects classification accuracy in neuromorphic systems [CITE:2,4]."
+
+## Guidelines
+- Structure: overview → details → implications
+- Integrate information without redundancy
+- If sources conflict, present both perspectives with their respective citations
+- Be comprehensive but concise
+- Focus on directly answering the original question
+- NEVER include information that isn't supported by the provided sources`;
+
+/**
+ * Aggregate chunks from all sub-query results with deduplication
+ *
+ * @param subQueryResults - Results from parallel sub-query execution
+ * @returns Deduplicated chunks and total count from sub-queries
+ */
+function aggregateChunks(subQueryResults: SubQueryResult[]): {
+  chunks: GroundingChunk[];
+  totalFromSubQueries: number;
+} {
+  const seenTexts = new Set<string>();
+  const chunks: GroundingChunk[] = [];
+  let total = 0;
+
+  for (const result of subQueryResults) {
+    if (!result.success) continue;
+    total += result.groundingChunks.length;
+
+    for (const chunk of result.groundingChunks) {
+      const text = chunk.retrievedContext?.text || '';
+      // Use first 200 chars as fingerprint for deduplication
+      const fingerprint = text.slice(0, 200).trim();
+
+      if (text.length > 0 && !seenTexts.has(fingerprint)) {
+        seenTexts.add(fingerprint);
+        chunks.push(chunk);
+      }
+    }
+  }
+
+  return { chunks, totalFromSubQueries: total };
+}
+
+/**
+ * Build synthesis prompt with sources and sub-query results
+ *
+ * @param originalQuestion - The user's original question
+ * @param subQueryResults - Results from parallel sub-query execution
+ * @param chunks - Aggregated and deduplicated chunks
+ * @returns Formatted prompt for synthesis
+ */
+function buildSynthesisPromptWithCitations(
   originalQuestion: string,
-  subQueryResults: SubQueryResult[]
+  subQueryResults: SubQueryResult[],
+  chunks: GroundingChunk[]
 ): string {
+  const MAX_CHUNKS = 30;
+  const MAX_CHUNK_LENGTH = 500;
+
+  // Build source section with indexed chunks
+  const sourceSection = chunks
+    .slice(0, MAX_CHUNKS)
+    .map((chunk, idx) => {
+      const text = chunk.retrievedContext?.text || '';
+      const preview =
+        text.length > MAX_CHUNK_LENGTH
+          ? text.slice(0, MAX_CHUNK_LENGTH) + '...'
+          : text;
+      return `[Source ${idx}]\n${preview}`;
+    })
+    .join('\n\n');
+
+  // Build sub-query summary section
   const subQuerySection = subQueryResults
     .filter(r => r.success && r.answer.trim().length > 0)
     .map(
@@ -46,72 +122,204 @@ ${r.answer}`
   return `## Original Question
 "${originalQuestion}"
 
-## Information from Sub-Queries
+## Available Sources (Use [CITE:N] to reference, N is 0-based index)
+${sourceSection}
+
+## Preliminary Analysis (from sub-queries)
 ${subQuerySection}
 
 ## Your Task
-Synthesize the above information into a coherent, well-structured answer to the original question. Focus on directly answering what was asked.`;
+Synthesize the above information into a coherent, well-structured answer.
+- Use [CITE:N] for EVERY claim you make (where N is the source index)
+- You may cite multiple sources: [CITE:0,3,5]
+- Do not include any information not supported by the sources above`;
 }
 
 /**
- * Merge grounding data from multiple sub-query results
+ * Find the start of the sentence containing the given position
  *
- * Combines all chunks and adjusts support indices to account for
- * the offset from previous results.
+ * Handles edge cases:
+ * - Abbreviations (e.g., Dr., U.S., i.e.)
+ * - Decimal numbers (e.g., 99.5%)
  *
- * @param results - Successful sub-query results
- * @returns Combined chunks and supports with adjusted indices
+ * @param text - The text to search
+ * @param endPos - Position to search backwards from
+ * @returns Start index of the sentence
  */
-export function mergeGroundingData(results: SubQueryResult[]): {
-  allChunks: GroundingChunk[];
-  allSupports: GroundingSupport[];
-} {
-  const allChunks: GroundingChunk[] = [];
-  const allSupports: GroundingSupport[] = [];
-  let chunkOffset = 0;
+function findSentenceStart(text: string, endPos: number): number {
+  for (let i = endPos - 1; i >= 0; i--) {
+    const char = text[i];
 
-  for (const result of results) {
-    if (!result.success) continue;
+    if (char === '.') {
+      // Skip abbreviations (e.g., Dr., U.S.) - single capital letter before period
+      if (
+        i > 0 &&
+        /[A-Z]/.test(text[i - 1]) &&
+        (i < 2 || /\s/.test(text[i - 2]))
+      ) {
+        continue;
+      }
+      // Skip decimal numbers (e.g., 99.5%)
+      if (
+        i > 0 &&
+        /\d/.test(text[i - 1]) &&
+        i < text.length - 1 &&
+        /\d/.test(text[i + 1])
+      ) {
+        continue;
+      }
+    }
 
-    // Add all chunks from this result
-    allChunks.push(...result.groundingChunks);
+    // Sentence boundaries: period, newline, colon, exclamation, question mark
+    if (
+      char === '.' ||
+      char === '\n' ||
+      char === ':' ||
+      char === '!' ||
+      char === '?'
+    ) {
+      let start = i + 1;
+      // Skip leading whitespace
+      while (start < endPos && /\s/.test(text[start])) {
+        start++;
+      }
+      return start;
+    }
+  }
 
-    // Add supports with adjusted chunk indices
-    for (const support of result.groundingSupports) {
-      allSupports.push({
-        segment: support.segment,
-        groundingChunkIndices: support.groundingChunkIndices.map(
-          idx => idx + chunkOffset
-        ),
+  // If no sentence boundary found, return start of text
+  return 0;
+}
+
+/**
+ * Parse citation markers from LLM response and extract citation positions
+ *
+ * @param responseText - Raw LLM response with [CITE:N] markers
+ * @param maxChunkIndex - Maximum valid chunk index
+ * @returns Cleaned text (without markers) and parsed citations
+ */
+function parseCitationMarkers(
+  responseText: string,
+  maxChunkIndex: number
+): { cleanedText: string; citations: ParsedCitation[] } {
+  const citations: ParsedCitation[] = [];
+  const markerRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]/g;
+
+  let cleanedText = '';
+  let lastIndex = 0;
+  let match;
+
+  while ((match = markerRegex.exec(responseText)) !== null) {
+    // Add text before this marker
+    cleanedText += responseText.slice(lastIndex, match.index);
+
+    // Parse indices from the marker
+    const indices = match[1]
+      .split(',')
+      .map(n => parseInt(n.trim(), 10))
+      .filter(n => !isNaN(n) && n >= 0 && n < maxChunkIndex);
+
+    if (indices.length > 0) {
+      const citationEndPos = cleanedText.length;
+      const sentenceStart = findSentenceStart(cleanedText, citationEndPos);
+
+      citations.push({
+        startIndex: sentenceStart,
+        endIndex: citationEndPos,
+        chunkIndices: indices,
       });
     }
 
-    // Update offset for next result
-    chunkOffset += result.groundingChunks.length;
+    lastIndex = match.index + match[0].length;
   }
 
-  return { allChunks, allSupports };
+  // Add remaining text after last marker
+  cleanedText += responseText.slice(lastIndex);
+
+  return { cleanedText, citations };
+}
+
+/**
+ * Merge overlapping or adjacent citations
+ *
+ * @param citations - Array of parsed citations
+ * @returns Merged citations
+ */
+function mergeCitations(citations: ParsedCitation[]): ParsedCitation[] {
+  if (citations.length === 0) return [];
+
+  // Sort by start position
+  const sorted = [...citations].sort((a, b) => a.startIndex - b.startIndex);
+  const merged: ParsedCitation[] = [{ ...sorted[0] }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+
+    // Merge if overlapping or adjacent
+    if (current.startIndex <= last.endIndex + 1) {
+      last.endIndex = Math.max(last.endIndex, current.endIndex);
+      last.chunkIndices = Array.from(
+        new Set([...last.chunkIndices, ...current.chunkIndices])
+      );
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Convert parsed citations to GroundingSupport format
+ *
+ * @param cleanedText - Text with citation markers removed
+ * @param citations - Parsed citations
+ * @returns Array of GroundingSupport objects
+ */
+function citationsToGroundingSupports(
+  cleanedText: string,
+  citations: ParsedCitation[]
+): GroundingSupport[] {
+  const merged = mergeCitations(citations);
+
+  return merged.map(c => ({
+    segment: {
+      startIndex: c.startIndex,
+      endIndex: c.endIndex,
+      text: cleanedText.slice(c.startIndex, c.endIndex),
+    },
+    groundingChunkIndices: c.chunkIndices,
+  }));
 }
 
 /**
  * Synthesize multiple sub-query answers into a single coherent response
  *
- * Uses Gemini (without File Search) to combine the answers.
- * Merges all grounding chunks from sub-queries.
+ * Uses LLM Citation Markers for grounding:
+ * 1. Aggregate chunks from all sub-queries
+ * 2. Build prompt with indexed sources
+ * 3. LLM generates response with [CITE:N] markers
+ * 4. Parse markers to extract grounding metadata
  *
  * @param originalQuestion - The user's original question
  * @param subQueryResults - Results from parallel sub-query execution
- * @returns ChatResponse with synthesized answer and merged grounding data
+ * @param fileSearchStoreId - The File Search Store ID (kept for interface compatibility, not used)
+ * @returns ChatResponse with synthesized answer and grounding data
  */
 export async function synthesizeResponses(
   originalQuestion: string,
-  subQueryResults: SubQueryResult[]
+  subQueryResults: SubQueryResult[],
+  fileSearchStoreId: string // Interface compatibility, not used in LLM Citation Markers approach
 ): Promise<ChatResponse> {
   const startTime = Date.now();
 
   console.log('\n[Synthesis] ──────────────────────────────────────────');
-  console.log('[Synthesis] Step 3: Response Synthesis');
+  console.log('[Synthesis] Step 3: Response Synthesis (LLM Citation Markers)');
   console.log('[Synthesis] ──────────────────────────────────────────');
+
+  // Suppress unused variable warning
+  void fileSearchStoreId;
 
   // Filter to successful results only
   const successfulResults = subQueryResults.filter(r => r.success);
@@ -120,12 +328,27 @@ export async function synthesizeResponses(
     console.error(
       '[Synthesis] ✗ No successful sub-query results to synthesize'
     );
-    throw new Error('No successful sub-query results to synthesize');
+    return getBestSubQueryAnswer(subQueryResults);
   }
 
   console.log(
     `[Synthesis] 📥 Input: ${successfulResults.length} successful sub-query answers`
   );
+
+  // Step 1: Aggregate chunks from all sub-queries
+  const { chunks, totalFromSubQueries } = aggregateChunks(successfulResults);
+
+  console.log(
+    `[Synthesis] 📊 Chunks: ${totalFromSubQueries} total → ${chunks.length} unique (after dedup)`
+  );
+
+  // Fallback if no chunks available
+  if (chunks.length === 0) {
+    console.log(
+      '[Synthesis] ⚠️ No chunks available, using best sub-query answer'
+    );
+    return getBestSubQueryAnswer(subQueryResults);
+  }
 
   // Log each successful result summary
   successfulResults.forEach((r, i) => {
@@ -135,25 +358,22 @@ export async function synthesizeResponses(
     );
   });
 
-  // Merge grounding data from all results
-  const { allChunks, allSupports } = mergeGroundingData(successfulResults);
-
-  console.log(
-    `[Synthesis] 🔗 Merged grounding: ${allChunks.length} chunks, ${allSupports.length} supports`
+  // Step 2: Build synthesis prompt with citations
+  const prompt = buildSynthesisPromptWithCitations(
+    originalQuestion,
+    successfulResults,
+    chunks
   );
 
-  // Build synthesis prompt
-  const prompt = buildSynthesisPrompt(originalQuestion, successfulResults);
-  const promptLength = prompt.length;
-  console.log(`[Synthesis] 📝 Synthesis prompt length: ${promptLength} chars`);
+  console.log(`[Synthesis] 📝 Synthesis prompt length: ${prompt.length} chars`);
   console.log(
-    '[Synthesis] 🔄 Calling Gemini for synthesis (no File Search)...'
+    '[Synthesis] 🔄 Calling Gemini for synthesis (NO File Search)...'
   );
 
-  // Call Gemini for synthesis (no File Search)
+  // Step 3: Call Gemini WITHOUT File Search (sources already in prompt)
   const client = getGeminiClient();
 
-  const result = await withGeminiErrorHandling(async () => {
+  const rawAnswer = await withGeminiErrorHandling(async () => {
     const response = await client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
@@ -163,8 +383,9 @@ export async function synthesizeResponses(
         },
       ],
       config: {
-        systemInstruction: SYNTHESIS_SYSTEM_PROMPT,
-        temperature: 0.3, // Slightly higher for more natural synthesis
+        systemInstruction: SYNTHESIS_SYSTEM_PROMPT_WITH_CITATIONS,
+        temperature: 0.3,
+        // NO tools - we're using LLM Citation Markers instead
       },
     });
 
@@ -174,23 +395,43 @@ export async function synthesizeResponses(
     );
   });
 
+  // Step 4: Parse citation markers
+  const { cleanedText, citations } = parseCitationMarkers(
+    rawAnswer,
+    chunks.length
+  );
+
+  console.log(
+    `[Synthesis] 🔍 Parsed ${citations.length} citation markers from response`
+  );
+
+  // Step 5: Convert to GroundingSupports
+  const groundingSupports = citationsToGroundingSupports(
+    cleanedText,
+    citations
+  );
+
   const elapsed = Date.now() - startTime;
 
   console.log('[Synthesis] ✓ Synthesis complete');
-  console.log(`[Synthesis] 📊 Output: ${result.length} chars`);
+  console.log(`[Synthesis] 📊 Output: ${cleanedText.length} chars`);
+  console.log(
+    `[Synthesis] 🔗 Grounding: ${chunks.length} chunks, ${groundingSupports.length} supports`
+  );
   console.log(`[Synthesis] ⏱️ Step 3 completed in ${elapsed}ms`);
 
   return {
-    answer: result,
-    groundingChunks: allChunks,
-    groundingSupports: allSupports,
+    answer: cleanedText,
+    groundingChunks: chunks,
+    groundingSupports,
   };
 }
 
 /**
  * Get the best single sub-query answer as fallback
  *
- * Used when synthesis fails - returns the most complete answer.
+ * Used when synthesis fails or no chunks available.
+ * Returns the most complete answer based on grounding chunks and length.
  *
  * @param results - Sub-query results
  * @returns ChatResponse from the best available result

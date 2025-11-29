@@ -55,7 +55,7 @@ async function executeSingleQuery(
     ];
 
     const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents,
       config: {
         systemInstruction: CITATION_SYSTEM_PROMPT,
@@ -112,9 +112,9 @@ async function executeSingleQuery(
 
 /**
  * Extract grounding data from Gemini's response metadata
- * (Duplicated from chat.ts to avoid circular dependencies)
+ * Exported for use in synthesis.ts
  */
-function extractGroundingData(groundingMetadata: unknown): {
+export function extractGroundingData(groundingMetadata: unknown): {
   chunks: GroundingChunk[];
   supports: GroundingSupport[];
 } {

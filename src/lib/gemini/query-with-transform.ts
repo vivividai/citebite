@@ -145,7 +145,11 @@ export async function queryWithTransform(
 
     let response;
     try {
-      response = await synthesizeResponses(userQuestion, subQueryResults);
+      response = await synthesizeResponses(
+        userQuestion,
+        subQueryResults,
+        fileSearchStoreId
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';

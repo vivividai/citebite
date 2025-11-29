@@ -133,7 +133,7 @@ async function queryWithRetry(
       }
 
       const requestConfig = {
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-pro-preview',
         contents,
         config: {
           // System instruction for citation-focused responses

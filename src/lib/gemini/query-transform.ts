@@ -111,7 +111,7 @@ export async function transformQuery(
 
   const result = await withGeminiErrorHandling(async () => {
     const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: [
         {
           role: 'user' as const,

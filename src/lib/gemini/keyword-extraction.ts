@@ -44,7 +44,7 @@ export async function extractKeywords(
 
   const result = await withGeminiErrorHandling(async () => {
     const response = await geminiClient.models.generateContent({
-      model: 'gemini-2.5-flash', // Using flash model for speed
+      model: 'gemini-3-pro-preview',
       contents: [
         {
           role: 'user' as const,

@@ -32,14 +32,18 @@ console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('=================================\n');
 
 // Start all workers
-try {
-  startAllWorkers();
-  console.log('\n✓ All workers started successfully');
-  console.log('Press Ctrl+C to stop workers\n');
-} catch (error) {
-  console.error('Failed to start workers:', error);
-  process.exit(1);
+async function main() {
+  try {
+    await startAllWorkers();
+    console.log('\n✓ All workers started successfully');
+    console.log('Press Ctrl+C to stop workers\n');
+  } catch (error) {
+    console.error('Failed to start workers:', error);
+    process.exit(1);
+  }
+
+  // Keep process alive
+  process.stdin.resume();
 }
 
-// Keep process alive
-process.stdin.resume();
+main();

@@ -9,17 +9,26 @@ import {
 } from './pdfDownloadWorker';
 import { startPdfIndexWorker, stopPdfIndexWorker } from './pdfIndexWorker';
 import { startInsightWorker, stopInsightWorker } from './insightWorker';
+import {
+  startBulkUploadCleanupWorker,
+  stopBulkUploadCleanupWorker,
+} from './bulkUploadCleanupWorker';
+import { scheduleRecurringCleanup } from '../queues';
 
 /**
  * Start all workers
  * Call this when your worker process/server starts
  */
-export function startAllWorkers(): void {
+export async function startAllWorkers(): Promise<void> {
   console.log('Starting all background workers...');
 
   startPdfDownloadWorker();
   startPdfIndexWorker();
   startInsightWorker();
+  startBulkUploadCleanupWorker();
+
+  // Schedule recurring cleanup job for bulk upload sessions
+  await scheduleRecurringCleanup();
 
   console.log('All background workers started successfully');
 }
@@ -35,6 +44,7 @@ export async function stopAllWorkers(): Promise<void> {
     stopPdfDownloadWorker(),
     stopPdfIndexWorker(),
     stopInsightWorker(),
+    stopBulkUploadCleanupWorker(),
   ]);
 
   console.log('All background workers stopped successfully');

@@ -34,6 +34,53 @@ export type Database = {
   };
   public: {
     Tables: {
+      bulk_upload_sessions: {
+        Row: {
+          collection_id: string;
+          completed_at: string | null;
+          created_at: string;
+          error_log: Json;
+          expires_at: string;
+          files: Json;
+          id: string;
+          last_activity_at: string;
+          status: string;
+          user_id: string;
+        };
+        Insert: {
+          collection_id: string;
+          completed_at?: string | null;
+          created_at?: string;
+          error_log?: Json;
+          expires_at: string;
+          files?: Json;
+          id?: string;
+          last_activity_at?: string;
+          status?: string;
+          user_id: string;
+        };
+        Update: {
+          collection_id?: string;
+          completed_at?: string | null;
+          created_at?: string;
+          error_log?: Json;
+          expires_at?: string;
+          files?: Json;
+          id?: string;
+          last_activity_at?: string;
+          status?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'bulk_upload_sessions_collection_id_fkey';
+            columns: ['collection_id'];
+            isOneToOne: false;
+            referencedRelation: 'collections';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       collection_papers: {
         Row: {
           collection_id: string;
@@ -285,7 +332,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      update_bulk_upload_file: {
+        Args: { p_file_id: string; p_session_id: string; p_update: Json };
+        Returns: undefined;
+      };
     };
     Enums: {
       [_ in never]: never;

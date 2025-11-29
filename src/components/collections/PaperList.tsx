@@ -12,7 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, FileText, AlertCircle, ArrowUpDown } from 'lucide-react';
+import {
+  Loader2,
+  FileText,
+  AlertCircle,
+  ArrowUpDown,
+  Upload,
+} from 'lucide-react';
+import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
 
 interface PaperListProps {
   collectionId: string;
@@ -153,6 +160,22 @@ export function PaperList({ collectionId }: PaperListProps) {
             >
               Failed ({counts.failed})
             </Button>
+          )}
+
+          {/* Bulk Upload Button - shown when papers need PDFs */}
+          {counts.failed > 0 && (
+            <BulkUploadDialog
+              collectionId={collectionId}
+              papersNeedingPdf={papers
+                .filter((p: Paper) => p.vector_status === 'failed')
+                .map((p: Paper) => ({ paper_id: p.paper_id, title: p.title }))}
+              trigger={
+                <Button variant="secondary" size="sm">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Bulk Upload PDFs
+                </Button>
+              }
+            />
           )}
         </div>
 

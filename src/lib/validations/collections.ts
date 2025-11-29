@@ -21,21 +21,21 @@ export const createCollectionSchema = z
 
     filters: z
       .object({
-        yearFrom: z.coerce
-          .number()
-          .int()
-          .min(1900, 'Year must be 1900 or later')
-          .optional(),
-        yearTo: z.coerce
-          .number()
-          .int()
-          .max(new Date().getFullYear(), 'Year cannot be in the future')
-          .optional(),
-        minCitations: z.coerce
-          .number()
-          .int()
-          .min(0, 'Minimum citations must be non-negative')
-          .optional(),
+        yearFrom: z.preprocess(val => {
+          if (val === '' || val === undefined || val === null) return undefined;
+          const num = Number(val);
+          return isNaN(num) ? undefined : num;
+        }, z.number().int().min(1900, 'Year must be 1900 or later').optional()),
+        yearTo: z.preprocess(val => {
+          if (val === '' || val === undefined || val === null) return undefined;
+          const num = Number(val);
+          return isNaN(num) ? undefined : num;
+        }, z.number().int().max(new Date().getFullYear(), 'Year cannot be in the future').optional()),
+        minCitations: z.preprocess(val => {
+          if (val === '' || val === undefined || val === null) return undefined;
+          const num = Number(val);
+          return isNaN(num) ? undefined : num;
+        }, z.number().int().min(0, 'Minimum citations must be non-negative').optional()),
         openAccessOnly: z.boolean().optional(),
       })
       .optional()

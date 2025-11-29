@@ -42,7 +42,10 @@ app/api/
 │   └── [id]/
 │       ├── route.ts          # GET, PATCH, DELETE
 │       ├── update/route.ts   # POST (신규 논문 확인)
-│       └── add-papers/route.ts
+│       ├── add-papers/route.ts
+│       ├── bulk-upload/
+│       │   ├── route.ts      # POST (PDF 일괄 업로드 + 매칭)
+│       │   └── confirm/route.ts # POST (매칭 확정 + 인덱싱)
 ├── papers/
 │   └── [id]/
 │       └── upload/route.ts   # POST (PDF 업로드)
@@ -359,3 +362,369 @@ export async function uploadToFileSearchStore(
   });
 }
 ```
+
+---
+
+## 5. Bulk PDF Upload API
+
+### 5.1 개요
+
+여러 PDF 파일을 한 번에 업로드하고 컬렉션 내 논문과 자동 매칭하는 API입니다.
+
+**관련 문서**: [BULK_PDF_UPLOAD_PLAN.md](./BULK_PDF_UPLOAD_PLAN.md)
+
+### 5.2 POST /api/collections/[id]/bulk-upload
+
+PDF 파일들을 업로드하고 메타데이터를 추출하여 매칭 결과를 반환합니다.
+
+**Request:**
+
+```typescript
+// Content-Type: multipart/form-data
+{
+  files: File[] // 최대 50개, 각 파일 최대 100MB
+}
+```
+
+**Response:**
+
+```typescript
+{
+  results: Array<{
+    filename: string;
+    tempStorageKey: string;
+    match: {
+      paperId: string | null;
+      paperTitle: string | null;
+      confidence: 'high' | 'medium' | 'low' | 'none';
+      matchMethod: 'doi' | 'arxiv' | 'title' | 'manual';
+    };
+    extractedMetadata: {
+      doi?: string;
+      arxivId?: string;
+      title?: string;
+    };
+  }>;
+  unmatchedPapers: Array<{
+    paperId: string;
+    title: string;
+  }>;
+}
+```
+
+**구현 예시:**
+
+```typescript
+// app/api/collections/[id]/bulk-upload/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { extractPdfMetadata } from '@/lib/pdf/metadata-extractor';
+import { matchPdfToPaper } from '@/lib/pdf/matcher';
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // 컬렉션 소유권 확인
+  const { data: collection } = await supabase
+    .from('collections')
+    .select('id, user_id')
+    .eq('id', params.id)
+    .single();
+
+  if (!collection || collection.user_id !== user.id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  // PDF가 필요한 논문 조회
+  const { data: papersNeedingPdf } = await supabase
+    .from('collection_papers')
+    .select('papers(*)')
+    .eq('collection_id', params.id)
+    .in('papers.vector_status', ['failed', 'pending']);
+
+  const formData = await req.formData();
+  const files = formData.getAll('files') as File[];
+
+  // 파일 검증
+  if (files.length > 50) {
+    return NextResponse.json(
+      { error: 'Too many files (max 50)' },
+      { status: 400 }
+    );
+  }
+
+  const results = [];
+
+  for (const file of files) {
+    // 크기 검증
+    if (file.size > 100 * 1024 * 1024) {
+      results.push({
+        filename: file.name,
+        error: 'File too large (max 100MB)',
+      });
+      continue;
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    // 메타데이터 추출
+    const metadata = await extractPdfMetadata(buffer);
+
+    // 매칭 시도
+    const matchResult = await matchPdfToPaper(metadata, papersNeedingPdf);
+
+    // 임시 저장
+    const tempKey = `temp/${user.id}/${crypto.randomUUID()}.pdf`;
+    await supabase.storage.from('pdfs').upload(tempKey, buffer);
+
+    results.push({
+      filename: file.name,
+      tempStorageKey: tempKey,
+      match: matchResult,
+      extractedMetadata: metadata,
+    });
+  }
+
+  return NextResponse.json({
+    results,
+    unmatchedPapers: papersNeedingPdf.filter(
+      p => !results.some(r => r.match.paperId === p.id)
+    ),
+  });
+}
+```
+
+### 5.3 POST /api/collections/[id]/bulk-upload/confirm
+
+사용자가 확인한 매칭을 확정하고 인덱싱 작업을 시작합니다.
+
+**Request:**
+
+```typescript
+{
+  matches: Array<{
+    tempStorageKey: string;
+    paperId: string;
+  }>;
+}
+```
+
+**Response:**
+
+```typescript
+{
+  success: true;
+  processed: number;
+  indexingJobIds: string[];
+}
+```
+
+**구현 예시:**
+
+```typescript
+// app/api/collections/[id]/bulk-upload/confirm/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { pdfIndexingQueue } from '@/lib/jobs/queues';
+
+const ConfirmSchema = z.object({
+  matches: z.array(
+    z.object({
+      tempStorageKey: z.string(),
+      paperId: z.string().uuid(),
+    })
+  ),
+});
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = await req.json();
+  const { matches } = ConfirmSchema.parse(body);
+
+  const indexingJobIds: string[] = [];
+
+  for (const match of matches) {
+    // 임시 파일을 영구 저장소로 이동
+    const permanentKey = `collections/${params.id}/${match.paperId}.pdf`;
+
+    const { data: fileData } = await supabase.storage
+      .from('pdfs')
+      .download(match.tempStorageKey);
+
+    await supabase.storage.from('pdfs').upload(permanentKey, fileData!);
+
+    // 임시 파일 삭제
+    await supabase.storage.from('pdfs').remove([match.tempStorageKey]);
+
+    // 논문 레코드 업데이트
+    await supabase
+      .from('papers')
+      .update({
+        storage_path: permanentKey,
+        pdf_source: 'manual_bulk',
+        vector_status: 'pending',
+      })
+      .eq('id', match.paperId);
+
+    // 인덱싱 작업 큐에 추가
+    const job = await pdfIndexingQueue.add('index-pdf', {
+      paperId: match.paperId,
+      collectionId: params.id,
+      storagePath: permanentKey,
+    });
+
+    indexingJobIds.push(job.id!);
+  }
+
+  return NextResponse.json({
+    success: true,
+    processed: matches.length,
+    indexingJobIds,
+  });
+}
+```
+
+### 5.4 PDF 메타데이터 추출
+
+```typescript
+// lib/pdf/metadata-extractor.ts
+import pdf from 'pdf-parse';
+
+const DOI_REGEX = /\b(10\.\d{4,}(?:\.\d+)*\/(?:(?!["&\'<>])\S)+)\b/gi;
+const ARXIV_REGEX = /arXiv:(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
+
+export interface PdfMetadata {
+  doi?: string;
+  arxivId?: string;
+  title?: string;
+  text?: string;
+}
+
+export async function extractPdfMetadata(buffer: Buffer): Promise<PdfMetadata> {
+  const data = await pdf(buffer);
+  const text = data.text;
+
+  // DOI 추출
+  const doiMatch = text.match(DOI_REGEX);
+  const doi = doiMatch?.[0];
+
+  // arXiv ID 추출
+  const arxivMatch = text.match(ARXIV_REGEX);
+  const arxivId = arxivMatch?.[1];
+
+  // 제목 추출 (첫 페이지의 첫 몇 줄에서 추출)
+  const lines = text.split('\n').filter(l => l.trim());
+  const title = extractTitle(lines.slice(0, 20));
+
+  return { doi, arxivId, title, text: text.slice(0, 5000) };
+}
+
+function extractTitle(lines: string[]): string | undefined {
+  // 휴리스틱: 가장 긴 줄 중 하나가 제목일 가능성 높음
+  const candidates = lines
+    .filter(l => l.length > 20 && l.length < 200)
+    .filter(l => !l.match(/abstract|introduction|doi|arxiv/i));
+
+  return candidates[0]?.trim();
+}
+```
+
+### 5.5 매칭 로직
+
+```typescript
+// lib/pdf/matcher.ts
+import { searchByTitle } from '@/lib/semantic-scholar/client';
+
+export interface MatchResult {
+  paperId: string | null;
+  paperTitle: string | null;
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  matchMethod: 'doi' | 'arxiv' | 'title' | 'manual';
+}
+
+export async function matchPdfToPaper(
+  metadata: PdfMetadata,
+  papers: Paper[]
+): Promise<MatchResult> {
+  // 1. DOI 매칭 (highest confidence)
+  if (metadata.doi) {
+    const match = papers.find(
+      p => p.doi?.toLowerCase() === metadata.doi?.toLowerCase()
+    );
+    if (match) {
+      return {
+        paperId: match.id,
+        paperTitle: match.title,
+        confidence: 'high',
+        matchMethod: 'doi',
+      };
+    }
+  }
+
+  // 2. arXiv ID 매칭
+  if (metadata.arxivId) {
+    const match = papers.find(p => p.external_ids?.ArXiv === metadata.arxivId);
+    if (match) {
+      return {
+        paperId: match.id,
+        paperTitle: match.title,
+        confidence: 'high',
+        matchMethod: 'arxiv',
+      };
+    }
+  }
+
+  // 3. 제목 검색으로 매칭
+  if (metadata.title) {
+    const searchResult = await searchByTitle(metadata.title);
+    if (searchResult) {
+      const match = papers.find(
+        p => p.semantic_scholar_id === searchResult.paperId
+      );
+      if (match) {
+        return {
+          paperId: match.id,
+          paperTitle: match.title,
+          confidence: 'medium',
+          matchMethod: 'title',
+        };
+      }
+    }
+  }
+
+  // 4. 매칭 실패
+  return {
+    paperId: null,
+    paperTitle: null,
+    confidence: 'none',
+    matchMethod: 'manual',
+  };
+}
+```
+
+---
+
+**문서 버전**: v1.1
+**수정일**: 2025-11-29
+**변경사항**: Bulk PDF Upload API 섹션 추가

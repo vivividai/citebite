@@ -10,7 +10,7 @@ const STEPS = [
 ];
 
 // Step durations in ms. null = wait until complete
-const STEP_DURATIONS = [2000, 6000, null];
+const STEP_DURATIONS = [20000, 20000, null];
 
 type StepStatus = 'completed' | 'active' | 'pending';
 

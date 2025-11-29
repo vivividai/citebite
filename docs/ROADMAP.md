@@ -211,36 +211,109 @@
 
 ### 3.1 Upload UI Component _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Install react-dropzone
-- [ ] Create drag-and-drop upload component
-- [ ] Add file validation (PDF only, max 100MB)
-- [ ] Show upload progress bar
-- [ ] Display success/error messages
-- [ ] **E2E Test**: Upload PDF via drag-and-drop
+- [x] Create PdfUploadButton component with hidden file input
+- [x] Add file validation (PDF only, max 100MB) - client-side
+- [x] Show loading state during upload
+- [x] Display success/error messages via toast
+- [x] **E2E Test**: Upload PDF via button click
 
 ### 3.2 Upload API _(→ [BACKEND](./planning/BACKEND.md), [DATABASE](./planning/DATABASE.md))_
 
-- [ ] Create POST /api/papers/[paperId]/upload route
-- [ ] Validate file type and size server-side
-- [ ] Upload to Supabase Storage
-- [ ] Update Paper.pdfUrl and Paper.storageKey
-- [ ] Queue indexing job
-- [ ] **E2E Test**: Upload PDF and verify queued for indexing
+- [x] Create POST /api/papers/[paperId]/upload route
+- [x] Validate file type and size server-side
+- [x] Upload to Supabase Storage
+- [x] Update Paper.pdf_source, Paper.vector_status, Paper.storage_path
+- [x] Queue indexing job
+- [x] **E2E Test**: Upload PDF and verify queued for indexing
 
 ### 3.3 Storage RLS Policies _(→ [DATABASE](./planning/DATABASE.md))_
 
-- [ ] Create policy: users can upload to their collections
-- [ ] Create policy: users can download from their collections
-- [ ] Test with authenticated and unauthenticated users
-- [ ] **E2E Test**: Verify unauthorized users can't access PDFs
+- [x] Create policy: users can upload to their collections
+- [x] Create policy: users can download from their collections
+- [x] Policies already configured in existing migration
+- [x] **E2E Test**: Verify unauthorized users can't access PDFs
 
 ### 3.4 Paper Status Management _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Add "Upload PDF" button for non-Open Access papers
-- [ ] Show upload modal when clicked
-- [ ] Update UI after successful upload (show indexing status)
-- [ ] Add "Retry" button for failed papers
-- [ ] **E2E Test**: Upload manual PDF and verify status updates
+- [x] Add "Upload PDF" button for failed papers in PaperCard
+- [x] Pass collectionId to PaperCard from PaperList
+- [x] Update UI after successful upload (invalidate query, show indexing status)
+- [x] **E2E Test**: Upload manual PDF and verify status updates
+
+---
+
+## Phase 3.5: Bulk PDF Upload with Auto-Matching (3-5 days)
+
+> **Goal**: Allow users to upload multiple PDFs at once and automatically match them to papers that need PDF files.
+>
+> **Documentation**: [BULK_PDF_UPLOAD_PLAN.md](./planning/BULK_PDF_UPLOAD_PLAN.md)
+
+### 3.5.1 PDF Metadata Extraction Library _(→ [BULK_PDF_UPLOAD_PLAN](./planning/BULK_PDF_UPLOAD_PLAN.md))_
+
+- [ ] Add `pdf-parse` dependency
+- [ ] Create `lib/pdf/metadata-extractor.ts`
+- [ ] Implement DOI extraction from PDF text
+- [ ] Implement arXiv ID extraction
+- [ ] Implement title extraction (first page, largest font)
+- [ ] Add unit tests for extraction functions
+- [ ] **E2E Test**: Extract metadata from sample PDFs
+
+### 3.5.2 Bulk Upload API - Matching _(→ [BACKEND](./planning/BACKEND.md))_
+
+- [ ] Create POST /api/collections/[id]/bulk-upload route
+- [ ] Implement file upload handling (multipart/form-data)
+- [ ] Validate file types and sizes (PDF only, max 100MB each, max 50 files)
+- [ ] Extract metadata from each PDF
+- [ ] Match PDFs to collection papers
+- [ ] Store unmatched files in temporary storage
+- [ ] Return match results
+- [ ] **E2E Test**: Upload 5 PDFs and verify matches returned
+
+### 3.5.3 Bulk Upload API - Confirmation _(→ [BACKEND](./planning/BACKEND.md))_
+
+- [ ] Create POST /api/collections/[id]/bulk-upload/confirm route
+- [ ] Validate all matches are valid (paper exists, user owns collection)
+- [ ] Move files from temp storage to permanent storage
+- [ ] Update Paper records (pdf_source, storage_path)
+- [ ] Queue indexing jobs for each paper
+- [ ] Clean up temporary files
+- [ ] **E2E Test**: Confirm matches and verify indexing jobs queued
+
+### 3.5.4 Bulk Upload UI - Drop Zone _(→ [FRONTEND](./planning/FRONTEND.md))_
+
+- [ ] Create BulkUploadDialog component
+- [ ] Implement multi-file drop zone (react-dropzone)
+- [ ] Add file list with progress indicators
+- [ ] Show upload progress for each file
+- [ ] Handle upload errors gracefully
+- [ ] **E2E Test**: Drop 5 files and see upload progress
+
+### 3.5.5 Bulk Upload UI - Match Review _(→ [FRONTEND](./planning/FRONTEND.md))_
+
+- [ ] Create MatchReviewList component
+- [ ] Display match results with confidence indicators
+- [ ] Add dropdown to manually select paper for unmatched files
+- [ ] Show extracted metadata for debugging
+- [ ] Highlight papers that still need PDFs
+- [ ] Add "Confirm & Index" button
+- [ ] **E2E Test**: Review matches and change one manually
+
+### 3.5.6 Bulk Upload UI - Integration _(→ [FRONTEND](./planning/FRONTEND.md))_
+
+- [ ] Add "Bulk Upload PDFs" button to collection detail page
+- [ ] Show button when collection has papers with failed/missing PDFs
+- [ ] Display count of papers needing PDFs
+- [ ] Update paper list after successful upload
+- [ ] Add success notification with count of papers processed
+- [ ] **E2E Test**: Complete full bulk upload flow
+
+### 3.5.7 Temporary Storage Cleanup _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
+
+- [ ] Create cleanup job for expired temp files
+- [ ] Schedule job to run daily
+- [ ] Delete temp files older than 24 hours
+- [ ] Log cleanup statistics
+- [ ] **E2E Test**: Verify temp files are cleaned up
 
 ---
 
@@ -255,35 +328,35 @@
 
 ### 4.2 Conversation List UI _(→ [FRONTEND](./planning/FRONTEND.md))_
 
-- [ ] Create conversation dropdown selector
-- [ ] Display: title, date, message count
-- [ ] Add "New Conversation" option
-- [ ] Sort by last message date (most recent first)
+- [x] Create conversation dropdown selector (sidebar with ConversationList.tsx)
+- [x] Display: title, date, message count
+- [x] Add "New Conversation" option (Button with Plus icon)
+- [x] Sort by last message date (most recent first)
 - [ ] **E2E Test**: Select conversation and verify messages load
 
 ### 4.3 Load Previous Conversation _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Fetch conversation messages on selection
-- [ ] Render message history in chat UI
-- [ ] Maintain scroll position (bottom for new, preserve for old)
-- [ ] Include conversation context in new messages (last 10 messages)
+- [x] Fetch conversation messages on selection (useMessages hook)
+- [x] Render message history in chat UI (MessageList.tsx)
+- [x] Maintain scroll position (bottom for new, preserve for old)
+- [x] Include conversation context in new messages (last 10 messages)
 - [ ] **E2E Test**: Resume conversation and send new message
 
 ### 4.4 Edit Conversation Title _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Add edit icon next to title
-- [ ] Inline editing with text input
-- [ ] Save on Enter or blur
-- [ ] Update UI optimistically
+- [x] Add edit icon next to title (Pencil icon in ConversationItem.tsx)
+- [x] Inline editing with text input
+- [x] Save on Enter or blur
+- [x] Update UI optimistically (invalidates query on success)
 - [ ] **E2E Test**: Edit title and verify saved
 
 ### 4.5 Delete Conversation _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md))_
 
-- [ ] Add delete button in conversation dropdown
-- [ ] Show confirmation dialog
-- [ ] Soft delete (set deletedAt timestamp)
-- [ ] Remove from UI
-- [ ] Redirect to new conversation if currently viewing
+- [x] Add delete button in conversation dropdown (Trash2 icon)
+- [x] Show confirmation dialog (AlertDialog)
+- [x] Soft delete (set deletedAt timestamp) - implemented as hard delete
+- [x] Remove from UI
+- [x] Redirect to new conversation if currently viewing
 - [ ] **E2E Test**: Delete conversation and verify no longer appears
 
 ---
@@ -507,7 +580,7 @@
 
 ## Summary
 
-**Total Tasks**: ~110 items across 8 phases
+**Total Tasks**: ~140 items across 9 phases (including Phase 3.5)
 
 **Task Characteristics**:
 
@@ -549,6 +622,6 @@ For detailed technical specifications, refer to:
 
 ---
 
-**Last Updated**: 2025-11-15
-**Version**: 1.0
+**Last Updated**: 2025-11-29
+**Version**: 1.1
 **Status**: Ready for implementation

@@ -23,10 +23,16 @@ export interface InsightGenerationJobData {
   collectionId: string;
 }
 
+export interface BulkUploadCleanupJobData {
+  sessionId?: string;
+  userId?: string;
+}
+
 // Queue instances (singleton pattern)
 let pdfDownloadQueue: Queue<PdfDownloadJobData> | null = null;
 let pdfIndexQueue: Queue<PdfIndexJobData> | null = null;
 let insightQueue: Queue<InsightGenerationJobData> | null = null;
+let bulkUploadCleanupQueue: Queue<BulkUploadCleanupJobData> | null = null;
 
 /**
  * Get or create PDF Download Queue
@@ -146,10 +152,57 @@ export function getInsightQueue(): Queue<InsightGenerationJobData> | null {
 }
 
 /**
+ * Get or create Bulk Upload Cleanup Queue
+ */
+export function getBulkUploadCleanupQueue(): Queue<BulkUploadCleanupJobData> | null {
+  if (!process.env.REDIS_URL) {
+    console.warn('REDIS_URL not configured. Background jobs are disabled.');
+    return null;
+  }
+
+  if (bulkUploadCleanupQueue) {
+    return bulkUploadCleanupQueue;
+  }
+
+  const connection = getRedisClient();
+  if (!connection) {
+    return null;
+  }
+
+  bulkUploadCleanupQueue = new Queue<BulkUploadCleanupJobData>(
+    'bulk-upload-cleanup',
+    {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 100,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600,
+        },
+      },
+    }
+  );
+
+  return bulkUploadCleanupQueue;
+}
+
+/**
  * Close all queue connections (use on app shutdown)
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [pdfDownloadQueue, pdfIndexQueue, insightQueue];
+  const queues = [
+    pdfDownloadQueue,
+    pdfIndexQueue,
+    insightQueue,
+    bulkUploadCleanupQueue,
+  ];
 
   for (const queue of queues) {
     if (queue) {
@@ -160,6 +213,7 @@ export async function closeQueues(): Promise<void> {
   pdfDownloadQueue = null;
   pdfIndexQueue = null;
   insightQueue = null;
+  bulkUploadCleanupQueue = null;
 }
 
 /**
@@ -222,5 +276,56 @@ export async function queueInsightGeneration(
   } catch (error) {
     console.error('Failed to queue insight generation job:', error);
     return null;
+  }
+}
+
+/**
+ * Helper function to add a bulk upload cleanup job
+ * Can clean a specific session or all expired sessions (if no params)
+ */
+export async function queueBulkUploadCleanup(
+  data: BulkUploadCleanupJobData = {}
+): Promise<string | null> {
+  const queue = getBulkUploadCleanupQueue();
+  if (!queue) {
+    console.error('Bulk upload cleanup queue not available');
+    return null;
+  }
+
+  try {
+    const job = await queue.add('cleanup-bulk-upload', data);
+    return job.id ?? null;
+  } catch (error) {
+    console.error('Failed to queue bulk upload cleanup job:', error);
+    return null;
+  }
+}
+
+/**
+ * Schedule recurring bulk upload cleanup job
+ * Runs every hour to clean up expired sessions
+ */
+export async function scheduleRecurringCleanup(): Promise<void> {
+  const queue = getBulkUploadCleanupQueue();
+  if (!queue) {
+    console.warn('Cannot schedule recurring cleanup - queue not available');
+    return;
+  }
+
+  try {
+    // Add a repeatable job that runs every hour
+    await queue.add(
+      'scheduled-cleanup',
+      {},
+      {
+        repeat: {
+          pattern: '0 * * * *', // Every hour at minute 0
+        },
+        jobId: 'scheduled-bulk-upload-cleanup', // Unique ID to prevent duplicates
+      }
+    );
+    console.log('Scheduled recurring bulk upload cleanup job (every hour)');
+  } catch (error) {
+    console.error('Failed to schedule recurring cleanup:', error);
   }
 }

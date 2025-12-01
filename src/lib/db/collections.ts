@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, TablesInsert } from '@/types/database.types';
 import { deleteCollectionPdfs } from '@/lib/storage/supabaseStorage';
+import { deleteChunksForCollection } from '@/lib/db/chunks';
 
 type CollectionInsert = TablesInsert<'collections'>;
 
@@ -22,24 +23,6 @@ export async function createCollection(
   }
 
   return collection;
-}
-
-/**
- * Update collection with file search store ID
- */
-export async function updateCollectionFileSearchStore(
-  supabase: SupabaseClient<Database>,
-  collectionId: string,
-  fileSearchStoreId: string
-) {
-  const { error } = await supabase
-    .from('collections')
-    .update({ file_search_store_id: fileSearchStoreId })
-    .eq('id', collectionId);
-
-  if (error) {
-    throw new Error(`Failed to update collection: ${error.message}`);
-  }
 }
 
 /**
@@ -226,6 +209,7 @@ export async function getCollectionById(
 /**
  * Delete a collection by ID with ownership check
  * This will cascade delete all related data:
+ * - Vector chunks from pgvector (paper_chunks)
  * - PDFs from Supabase Storage
  * - collection_papers entries
  * - conversations and messages
@@ -237,6 +221,17 @@ export async function deleteCollection(
 ) {
   // First verify ownership
   await getCollectionWithOwnership(supabase, collectionId, userId);
+
+  // Delete all vector chunks for this collection
+  try {
+    await deleteChunksForCollection(collectionId);
+    console.log(`Deleted vector chunks for collection ${collectionId}`);
+  } catch (error) {
+    console.error(
+      `Failed to delete chunks for collection ${collectionId}:`,
+      error
+    );
+  }
 
   // Delete all PDFs from Supabase Storage
   try {

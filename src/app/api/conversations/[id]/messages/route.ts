@@ -13,7 +13,7 @@ import {
   getMessagesByConversationWithCursor,
 } from '@/lib/db/messages';
 import { updateLastMessageAt } from '@/lib/db/conversations';
-import { queryWithTransform } from '@/lib/gemini/query-with-transform';
+import { queryRAG } from '@/lib/rag';
 
 /**
  * GET /api/conversations/[id]/messages
@@ -165,25 +165,14 @@ export async function POST(
       user.id
     );
 
-    // 4. Get collection and verify file search store exists
+    // 4. Get collection and verify user has access
     const collection = await getCollectionWithOwnership(
       supabase,
       conversation.collection_id,
       user.id
     );
 
-    if (!collection.file_search_store_id) {
-      return NextResponse.json(
-        {
-          error: 'Collection has no papers indexed yet',
-          message:
-            'Please wait for papers to be indexed before starting a conversation.',
-        },
-        { status: 400 }
-      );
-    }
-
-    // 5. Verify collection has papers
+    // 5. Verify collection has indexed papers
     const collectionPapers = await getCollectionPapers(supabase, collection.id);
 
     if (collectionPapers.length === 0) {
@@ -197,6 +186,22 @@ export async function POST(
       );
     }
 
+    // Check if any papers are indexed (vector_status === 'completed')
+    const indexedPapers = collectionPapers.filter(
+      p => p?.vector_status === 'completed'
+    );
+
+    if (indexedPapers.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'No papers indexed yet',
+          message:
+            'Please wait for papers to be indexed before starting a conversation.',
+        },
+        { status: 400 }
+      );
+    }
+
     // 6. Get conversation history (last 10 messages for context)
     const conversationHistory = await getLatestMessages(
       supabase,
@@ -204,26 +209,22 @@ export async function POST(
       10
     );
 
-    // Format history for Gemini
+    // Format history for RAG
     const formattedHistory = conversationHistory.map(msg => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
     }));
 
-    // 7. Query Gemini with File Search
+    // 7. Query Custom RAG
     console.log(
-      `[API] Querying Gemini for conversation ${conversationId} with ${formattedHistory.length} history messages`
+      `[API] Querying Custom RAG for conversation ${conversationId} with ${formattedHistory.length} history messages`
     );
 
     let aiResponse;
     try {
-      aiResponse = await queryWithTransform(
-        collection.file_search_store_id,
-        userMessage,
-        formattedHistory
-      );
+      aiResponse = await queryRAG(collection.id, userMessage, formattedHistory);
     } catch (error) {
-      console.error('[API] Gemini query error:', error);
+      console.error('[API] Custom RAG query error:', error);
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
 

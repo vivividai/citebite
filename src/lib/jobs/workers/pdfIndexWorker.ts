@@ -1,6 +1,8 @@
 /**
- * PDF Indexing Worker
- * Uploads PDFs to Gemini File Search Store for vector indexing
+ * PDF Indexing Worker - Custom RAG with pgvector
+ *
+ * Extracts text from PDFs, chunks them, generates embeddings,
+ * and stores in pgvector for hybrid search.
  */
 
 import { Worker, Job } from 'bullmq';
@@ -8,17 +10,27 @@ import { getRedisClient } from '@/lib/redis/client';
 import { PdfIndexJobData } from '../queues';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { downloadPdf } from '@/lib/storage/supabaseStorage';
-import { uploadPdfToStore, withRetry } from '@/lib/gemini/fileSearch';
-import { PaperMetadata } from '@/lib/gemini/types';
+import { extractTextFromPdf } from '@/lib/pdf/extractor';
+import { chunkText } from '@/lib/rag/chunker';
+import { generateDocumentEmbeddings } from '@/lib/rag/embeddings';
+import { insertChunks, deleteChunksForPaper } from '@/lib/db/chunks';
 
 // Worker instance
 let pdfIndexWorker: Worker<PdfIndexJobData> | null = null;
 
 /**
  * Process PDF indexing job
+ *
+ * Pipeline:
+ * 1. Download PDF from Supabase Storage
+ * 2. Extract text using pdf-parse
+ * 3. Chunk text with overlap
+ * 4. Generate embeddings using Gemini
+ * 5. Insert chunks into pgvector
+ * 6. Update paper status
  */
 async function processPdfIndexing(job: Job<PdfIndexJobData>) {
-  const { collectionId, paperId, storageKey } = job.data;
+  const { collectionId, paperId } = job.data;
 
   console.log(
     `[PDF Index Worker] Processing job ${job.id} for paper ${paperId} in collection ${collectionId}`
@@ -27,90 +39,92 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
   try {
     const supabase = createAdminSupabaseClient();
 
-    // Step 1: Get collection's file_search_store_id
-    const { data: collection, error: collectionError } = await supabase
-      .from('collections')
-      .select('file_search_store_id')
-      .eq('id', collectionId)
-      .single();
+    // Step 1: Download PDF from Supabase Storage
+    console.log(`[PDF Index Worker] Downloading PDF from storage...`);
+    await job.updateProgress(10);
 
-    if (collectionError || !collection) {
+    let pdfBuffer: Buffer;
+    try {
+      pdfBuffer = await downloadPdf(collectionId, paperId);
+    } catch (error) {
       throw new Error(
-        `Collection not found: ${collectionId}. Error: ${collectionError?.message}`
+        `Failed to download PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
-
-    if (!collection.file_search_store_id) {
-      throw new Error(
-        `Collection ${collectionId} is missing file_search_store_id. Cannot index PDF.`
-      );
-    }
-
-    console.log(
-      `[PDF Index Worker] Collection ${collectionId} has File Search Store: ${collection.file_search_store_id}`
-    );
-
-    // Step 2: Get paper metadata from database
-    const { data: paper, error: paperError } = await supabase
-      .from('papers')
-      .select('paper_id, title, authors, year, venue')
-      .eq('paper_id', paperId)
-      .single();
-
-    if (paperError || !paper) {
-      throw new Error(
-        `Paper not found: ${paperId}. Error: ${paperError?.message}`
-      );
-    }
-
-    console.log(`[PDF Index Worker] Retrieved paper metadata: ${paper.title}`);
-
-    // Step 3: Download PDF from Supabase Storage
-    console.log(
-      `[PDF Index Worker] Downloading PDF from storage: ${storageKey}`
-    );
-    const pdfBuffer = await downloadPdf(collectionId, paperId);
 
     console.log(
       `[PDF Index Worker] Downloaded PDF (${pdfBuffer.length} bytes)`
     );
 
-    // Step 4: Prepare metadata for Gemini
-    // Note: Gemini File Search metadata string values must be <= 256 characters
-    const authorsString = paper.authors
-      ? JSON.stringify(paper.authors)
-      : undefined;
-    const metadata: PaperMetadata = {
-      paper_id: paper.paper_id,
-      title: paper.title.substring(0, 256), // Truncate to 256 chars
-      authors: authorsString
-        ? authorsString.substring(0, 256) // Truncate to 256 chars
-        : undefined,
-      year: paper.year || undefined,
-      venue: paper.venue ? paper.venue.substring(0, 256) : undefined, // Truncate to 256 chars
-    };
+    // Step 2: Extract text from PDF
+    console.log(`[PDF Index Worker] Extracting text from PDF...`);
+    await job.updateProgress(20);
 
-    // Step 5: Upload to Gemini File Search Store with retry logic
-    console.log(
-      `[PDF Index Worker] Uploading PDF to Gemini File Search Store ${collection.file_search_store_id}`
-    );
+    const { text, numPages } = await extractTextFromPdf(pdfBuffer);
 
-    const result = await withRetry(
-      () =>
-        uploadPdfToStore(collection.file_search_store_id!, pdfBuffer, metadata),
-      3, // max retries
-      1000 // initial delay 1s
-    );
-
-    if (!result.success) {
-      throw new Error(`Failed to upload to Gemini: ${result.error}`);
+    if (!text || text.length < 100) {
+      throw new Error(
+        `PDF text extraction failed or content too short (${text?.length || 0} chars)`
+      );
     }
 
     console.log(
-      `[PDF Index Worker] Successfully indexed paper ${paperId} (File ID: ${result.fileId})`
+      `[PDF Index Worker] Extracted ${text.length} chars from ${numPages} pages`
     );
 
-    // Step 6: Update paper status to 'completed'
+    // Step 3: Chunk text
+    console.log(`[PDF Index Worker] Chunking text...`);
+    await job.updateProgress(40);
+
+    const chunks = chunkText(text);
+
+    if (chunks.length === 0) {
+      throw new Error('No chunks generated from PDF text');
+    }
+
+    console.log(`[PDF Index Worker] Created ${chunks.length} chunks`);
+
+    // Step 4: Generate embeddings (batched)
+    console.log(`[PDF Index Worker] Generating embeddings...`);
+    await job.updateProgress(60);
+
+    const embeddings = await generateDocumentEmbeddings(
+      chunks.map(c => c.content)
+    );
+
+    if (embeddings.length !== chunks.length) {
+      throw new Error(
+        `Embedding count mismatch: got ${embeddings.length}, expected ${chunks.length}`
+      );
+    }
+
+    console.log(`[PDF Index Worker] Generated ${embeddings.length} embeddings`);
+
+    // Step 5: Delete existing chunks (for re-indexing support)
+    console.log(`[PDF Index Worker] Clearing existing chunks...`);
+    await job.updateProgress(75);
+
+    await deleteChunksForPaper(paperId, collectionId);
+
+    // Step 6: Insert into pgvector
+    console.log(`[PDF Index Worker] Inserting chunks into pgvector...`);
+    await job.updateProgress(85);
+
+    await insertChunks(
+      chunks.map((chunk, i) => ({
+        paperId,
+        collectionId,
+        content: chunk.content,
+        chunkIndex: chunk.chunkIndex,
+        tokenCount: chunk.tokenCount,
+        embedding: embeddings[i],
+      }))
+    );
+
+    // Step 7: Update paper status to 'completed'
+    console.log(`[PDF Index Worker] Updating paper status...`);
+    await job.updateProgress(95);
+
     const { error: updateError } = await supabase
       .from('papers')
       .update({ vector_status: 'completed' })
@@ -121,14 +135,22 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
         `[PDF Index Worker] Failed to update paper status:`,
         updateError
       );
-      // Don't throw - the PDF was successfully indexed, just log the error
+      // Don't throw - chunks are already indexed
     }
 
+    await job.updateProgress(100);
+
     console.log(
-      `[PDF Index Worker] Successfully processed job ${job.id} for paper ${paperId}`
+      `[PDF Index Worker] Successfully indexed paper ${paperId} (${chunks.length} chunks)`
     );
 
-    return { success: true, paperId, fileId: result.fileId };
+    return {
+      success: true,
+      paperId,
+      chunksCreated: chunks.length,
+      pagesProcessed: numPages,
+      totalTokens: chunks.reduce((sum, c) => sum + c.tokenCount, 0),
+    };
   } catch (error) {
     console.error(`[PDF Index Worker] Failed to process job ${job.id}:`, error);
 
@@ -176,10 +198,10 @@ export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
     processPdfIndexing,
     {
       connection,
-      concurrency: 3, // Lower concurrency due to Gemini API rate limits
+      concurrency: 3, // Process 3 PDFs in parallel
       limiter: {
-        max: 5, // Max 5 jobs
-        duration: 1000, // Per second
+        max: 10, // Max 10 jobs
+        duration: 1000, // Per second (for Gemini API rate limits)
       },
     }
   );
@@ -189,7 +211,6 @@ export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
     console.log(
       `[PDF Index Worker] Job ${job.id} completed for paper ${job.data.paperId}`
     );
-    // Note: Status update is handled in processPdfIndexing function
   });
 
   pdfIndexWorker.on('failed', async (job, err) => {
@@ -197,14 +218,13 @@ export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
       `[PDF Index Worker] Job ${job?.id} failed for paper ${job?.data.paperId}:`,
       err.message
     );
-    // Note: Status update to 'failed' is handled in processPdfIndexing catch block
   });
 
   pdfIndexWorker.on('error', err => {
     console.error('[PDF Index Worker] Worker error:', err);
   });
 
-  console.log('PDF indexing worker started');
+  console.log('PDF indexing worker started (Custom RAG with pgvector)');
   return pdfIndexWorker;
 }
 

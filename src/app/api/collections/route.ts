@@ -12,11 +12,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createCollectionSchema } from '@/lib/validations/collections';
 import { searchWithReranking } from '@/lib/search';
 import { expandQueryForReranking } from '@/lib/gemini/query-expand';
-import { createFileSearchStore } from '@/lib/gemini/fileSearch';
 import { queuePdfDownload } from '@/lib/jobs/queues';
 import {
   createCollection,
-  updateCollectionFileSearchStore,
   linkPapersToCollection,
   getUserCollections,
 } from '@/lib/db/collections';
@@ -178,26 +176,8 @@ export async function POST(request: NextRequest) {
     // 7. Link papers to collection via collection_papers
     await linkPapersToCollection(supabase, collection.id, upsertedPaperIds);
 
-    // 8. Create Gemini File Search Store
-    const storeResult = await createFileSearchStore(
-      collection.id,
-      `${validatedData.name} - ${collection.id.substring(0, 8)}`
-    );
-
-    if (!storeResult.success || !storeResult.storeId) {
-      console.error('Failed to create File Search Store:', storeResult.error);
-      // Don't fail the entire request, store can be created later
-      // Log error and continue
-    } else {
-      // 9. Update collection with file_search_store_id
-      await updateCollectionFileSearchStore(
-        supabase,
-        collection.id,
-        storeResult.storeId
-      );
-    }
-
-    // 10. Queue PDF download jobs for Open Access papers
+    // 8. Queue PDF download jobs for Open Access papers
+    // (PDF indexing with pgvector happens after download)
     const openAccessPapers = getOpenAccessPapers(papers);
     const queuedJobs: (string | null)[] = [];
 
@@ -215,7 +195,7 @@ export async function POST(request: NextRequest) {
 
     const successfulJobs = queuedJobs.filter(id => id !== null).length;
 
-    // 11. Return success response
+    // 9. Return success response
     return NextResponse.json(
       {
         success: true,
@@ -225,7 +205,6 @@ export async function POST(request: NextRequest) {
             name: collection.name,
             searchQuery: collection.search_query,
             filters: collection.filters,
-            fileSearchStoreId: storeResult.storeId || null,
             createdAt: collection.created_at,
           },
           stats: {

@@ -1,8 +1,7 @@
 /**
  * Text Chunker for Custom RAG
  *
- * Splits extracted PDF text into overlapping chunks for embedding.
- * Uses fixed-size chunking with sentence boundary awareness.
+ * Splits extracted PDF text into overlapping fixed-size chunks for embedding.
  */
 
 export interface ChunkConfig {
@@ -21,24 +20,23 @@ export interface Chunk {
 }
 
 /**
- * Default chunking configuration
+ * Default chunking configuration (optimized for research papers)
  *
- * - 3200 chars ≈ 800 tokens (good for embedding models)
- * - 800 char overlap ≈ 200 tokens ensures context continuity
+ * - 4096 chars ≈ 1024 tokens (optimal for academic content per NVIDIA research)
+ * - 600 char overlap ≈ 150 tokens (15% overlap - best performing in benchmarks)
  * - 100 char minimum prevents tiny fragments
  */
 export const DEFAULT_CHUNK_CONFIG: ChunkConfig = {
-  maxChars: 3200,
-  overlapChars: 800,
+  maxChars: 4096,
+  overlapChars: 600,
   minChars: 100,
 };
 
 /**
- * Chunk text into overlapping segments
+ * Chunk text into overlapping fixed-size segments
  *
  * Features:
  * - Fixed-size chunks with configurable overlap
- * - Attempts to break at sentence boundaries
  * - Filters out chunks below minimum size
  *
  * @param text - Full text to chunk
@@ -74,21 +72,7 @@ export function chunkText(
   }
 
   while (start < text.length) {
-    let end = Math.min(start + config.maxChars, text.length);
-
-    // Try to break at sentence boundary if not at end of text
-    if (end < text.length) {
-      const sentenceEnd = findSentenceBoundary(
-        text,
-        start,
-        end,
-        config.minChars
-      );
-      if (sentenceEnd > 0) {
-        end = sentenceEnd;
-      }
-    }
-
+    const end = Math.min(start + config.maxChars, text.length);
     const content = text.slice(start, end).trim();
 
     // Only add chunk if it meets minimum size
@@ -111,41 +95,6 @@ export function chunkText(
   }
 
   return chunks;
-}
-
-/**
- * Find the best sentence boundary within a range
- *
- * Looks for sentence-ending punctuation (. ? !) followed by space or newline.
- * Returns the position after the punctuation, or -1 if no boundary found.
- */
-function findSentenceBoundary(
-  text: string,
-  start: number,
-  end: number,
-  minChars: number
-): number {
-  // Search backwards from end to find sentence boundary
-  // Only search in the last 30% of the chunk to avoid too-small chunks
-  const searchStart = Math.max(
-    start + minChars,
-    end - Math.floor((end - start) * 0.3)
-  );
-
-  for (let i = end; i >= searchStart; i--) {
-    const char = text[i];
-    const prevChar = text[i - 1];
-
-    // Check for sentence ending: punctuation followed by space/newline
-    if (
-      (prevChar === '.' || prevChar === '?' || prevChar === '!') &&
-      (char === ' ' || char === '\n' || char === '\r')
-    ) {
-      return i;
-    }
-  }
-
-  return -1;
 }
 
 /**

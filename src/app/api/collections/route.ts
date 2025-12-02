@@ -23,6 +23,8 @@ import {
   upsertPapers,
   getOpenAccessPapers,
 } from '@/lib/db/papers';
+import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
+import type { Paper } from '@/lib/semantic-scholar/types';
 
 /**
  * GET /api/collections
@@ -109,44 +111,69 @@ export async function POST(request: NextRequest) {
     // For manual mode, use keywords directly
     const keywords = validatedData.keywords!; // Validation ensures this is present
 
-    // 4. Search papers with semantic re-ranking
-    // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
-    const paperLimit = process.env.TEST_PAPER_LIMIT
-      ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
-      : 100; // Default limit for final collection
-
-    // Use naturalLanguageQuery for embedding, fallback to keywords
-    const originalQuery = validatedData.naturalLanguageQuery || keywords;
-
-    // Expand query for better SPECTER embedding similarity
-    const { expandedQuery } = await expandQueryForReranking(originalQuery);
-
-    console.log('[CollectionAPI] Using semantic re-ranking search');
-
-    const searchResult = await searchWithReranking({
-      userQuery: expandedQuery,
-      searchKeywords: keywords,
-      initialLimit: 500, // Fetch more papers for re-ranking
-      finalLimit: paperLimit,
-      yearFrom: validatedData.filters?.yearFrom,
-      yearTo: validatedData.filters?.yearTo,
-      minCitations: validatedData.filters?.minCitations,
-      openAccessOnly: validatedData.filters?.openAccessOnly,
-    });
-
-    let papers = searchResult.papers;
-
-    // 5. Filter by selectedPaperIds if provided
+    // 4. Get papers - either from selectedPaperIds or via search
     const selectedPaperIds = validatedData.selectedPaperIds;
+    let papers: Paper[];
+    let searchStats = {
+      totalSearched: 0,
+      papersWithEmbeddings: 0,
+      rerankingApplied: false,
+    };
+
     if (selectedPaperIds && selectedPaperIds.length > 0) {
-      const selectedSet = new Set(selectedPaperIds);
-      papers = papers.filter(p => selectedSet.has(p.paperId));
+      // If selectedPaperIds provided, fetch papers directly from Semantic Scholar batch API
+      // This ensures we get exactly the papers the user selected in preview
       console.log(
-        `[CollectionAPI] Filtered to ${papers.length} selected papers from ${searchResult.papers.length} total`
+        `[CollectionAPI] Fetching ${selectedPaperIds.length} selected papers via batch API`
       );
+
+      const client = getSemanticScholarClient();
+      const batchResults =
+        await client.getPapersBatchParallel(selectedPaperIds);
+
+      // Filter out null results (papers that don't exist)
+      papers = batchResults.filter((p): p is Paper => p !== null);
+
+      console.log(
+        `[CollectionAPI] Retrieved ${papers.length}/${selectedPaperIds.length} papers from batch API`
+      );
+
+      searchStats = {
+        totalSearched: selectedPaperIds.length,
+        papersWithEmbeddings: 0,
+        rerankingApplied: false,
+      };
+    } else {
+      // No selectedPaperIds - perform fresh search with re-ranking
+      // Use TEST_PAPER_LIMIT in test environment to reduce paper count for faster tests
+      const paperLimit = process.env.TEST_PAPER_LIMIT
+        ? parseInt(process.env.TEST_PAPER_LIMIT, 10)
+        : 100; // Default limit for final collection
+
+      // Use naturalLanguageQuery for embedding, fallback to keywords
+      const originalQuery = validatedData.naturalLanguageQuery || keywords;
+
+      // Expand query for better SPECTER embedding similarity
+      const { expandedQuery } = await expandQueryForReranking(originalQuery);
+
+      console.log('[CollectionAPI] Using semantic re-ranking search');
+
+      const searchResult = await searchWithReranking({
+        userQuery: expandedQuery,
+        searchKeywords: keywords,
+        initialLimit: 500,
+        finalLimit: paperLimit,
+        yearFrom: validatedData.filters?.yearFrom,
+        yearTo: validatedData.filters?.yearTo,
+        minCitations: validatedData.filters?.minCitations,
+        openAccessOnly: validatedData.filters?.openAccessOnly,
+      });
+
+      papers = searchResult.papers;
+      searchStats = searchResult.stats;
     }
 
-    // 6. Handle empty search results
+    // 5. Handle empty results
     if (papers.length === 0) {
       return NextResponse.json(
         {
@@ -214,9 +241,9 @@ export async function POST(request: NextRequest) {
             failedToQueue: queuedJobs.length - successfulJobs,
             // Re-ranking statistics
             reranking: {
-              totalSearched: searchResult.stats.totalSearched,
-              papersWithEmbeddings: searchResult.stats.papersWithEmbeddings,
-              rerankingApplied: searchResult.stats.rerankingApplied,
+              totalSearched: searchStats.totalSearched,
+              papersWithEmbeddings: searchStats.papersWithEmbeddings,
+              rerankingApplied: searchStats.rerankingApplied,
             },
           },
         },

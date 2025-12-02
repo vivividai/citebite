@@ -9,6 +9,48 @@ import { hybridSearch, SearchResult } from './search';
 import { getGeminiClient, withGeminiErrorHandling } from '@/lib/gemini/client';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+
+// API Trace logging for debugging
+const TRACE_DIR = join(process.cwd(), 'docs', 'info');
+const TRACE_FILE = join(TRACE_DIR, 'rag-api-trace.md');
+let traceEnabled = false;
+let traceContent = '';
+
+export function startAPITrace() {
+  traceEnabled = true;
+  traceContent = '';
+  if (!existsSync(TRACE_DIR)) {
+    mkdirSync(TRACE_DIR, { recursive: true });
+  }
+  const header = `# RAG API Trace Log
+Generated: ${new Date().toISOString()}
+
+---
+
+`;
+  traceContent = header;
+  writeFileSync(TRACE_FILE, traceContent);
+  console.log('[TRACE] API trace started');
+}
+
+export function appendTrace(section: string, content: unknown) {
+  if (!traceEnabled) return;
+  const text =
+    typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  const entry = `\n## ${section}\n\`\`\`json\n${text}\n\`\`\`\n`;
+  traceContent += entry;
+  appendFileSync(TRACE_FILE, entry);
+}
+
+export function endAPITrace() {
+  if (!traceEnabled) return;
+  const footer = `\n---\n\n# End of Trace\n`;
+  appendFileSync(TRACE_FILE, footer);
+  traceEnabled = false;
+  console.log(`[TRACE] API trace saved to ${TRACE_FILE}`);
+}
 
 /**
  * Conversation message format
@@ -83,16 +125,53 @@ Remember: Every statement must be supported by the provided context using [CITE:
 export async function queryRAG(
   collectionId: string,
   query: string,
-  conversationHistory: ConversationMessage[] = []
+  conversationHistory: ConversationMessage[] = [],
+  enableTrace: boolean = false
 ): Promise<RAGResponse> {
+  // Start API trace if enabled
+  if (enableTrace) {
+    startAPITrace();
+    appendTrace('1. RAG Query Input', {
+      collectionId,
+      query,
+      conversationHistoryLength: conversationHistory.length,
+      conversationHistory: conversationHistory.map(m => ({
+        role: m.role,
+        contentPreview: m.content.substring(0, 200) + '...',
+      })),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   console.log(`[RAG] Starting query for collection ${collectionId}`);
   console.log(`[RAG] Query: "${query.substring(0, 100)}..."`);
 
   // 1. Hybrid search for relevant chunks
   const chunks = await hybridSearch(collectionId, query, { limit: 20 });
 
+  if (enableTrace) {
+    appendTrace('2. Hybrid Search Results', {
+      totalChunks: chunks.length,
+      chunks: chunks.map((c, i) => ({
+        index: i,
+        paperId: c.paperId,
+        chunkId: c.chunkId,
+        chunkIndex: c.chunkIndex,
+        semanticScore: c.semanticScore,
+        keywordScore: c.keywordScore,
+        combinedScore: c.combinedScore,
+        contentPreview: c.content.substring(0, 300) + '...',
+        contentLength: c.content.length,
+      })),
+    });
+  }
+
   if (chunks.length === 0) {
     console.log('[RAG] No relevant chunks found');
+    if (enableTrace) {
+      appendTrace('ERROR', { message: 'No relevant chunks found' });
+      endAPITrace();
+    }
     return {
       answer:
         "I couldn't find relevant information in the papers for your question. This might mean the topic isn't covered in this collection, or try rephrasing your question.",
@@ -107,14 +186,55 @@ export async function queryRAG(
   const paperIds = Array.from(new Set(chunks.map(c => c.paperId)));
   const paperMetadata = await fetchPaperMetadata(paperIds);
 
+  if (enableTrace) {
+    const metadataObj: Record<string, unknown> = {};
+    paperMetadata.forEach((v, k) => {
+      metadataObj[k] = v;
+    });
+    appendTrace('3. Paper Metadata', {
+      paperIds,
+      metadata: metadataObj,
+    });
+  }
+
   // 3. Build context from chunks
   const context = buildContext(chunks, paperMetadata);
 
+  if (enableTrace) {
+    appendTrace('4. Built Context for LLM', {
+      contextLength: context.length,
+      fullContext: context,
+    });
+  }
+
   // 4. Generate response with LLM
-  const rawAnswer = await generateResponse(query, context, conversationHistory);
+  const rawAnswer = await generateResponse(
+    query,
+    context,
+    conversationHistory,
+    enableTrace
+  );
+
+  if (enableTrace) {
+    appendTrace('6. Raw LLM Response', {
+      rawAnswerLength: rawAnswer.length,
+      rawAnswer,
+    });
+  }
 
   // 5. Parse citations and map to chunks
   const { answer, citedIndices } = parseCitations(rawAnswer, chunks.length);
+
+  if (enableTrace) {
+    appendTrace('7. Parsed Citations', {
+      citedIndices,
+      citedChunks: citedIndices.map(idx => ({
+        index: idx,
+        paperId: chunks[idx]?.paperId,
+        contentPreview: chunks[idx]?.content?.substring(0, 200) + '...',
+      })),
+    });
+  }
 
   // 6. Build grounding data for frontend
   const groundingChunks: GroundingChunk[] = citedIndices.map(idx => ({
@@ -129,6 +249,22 @@ export async function queryRAG(
   const groundingSupports = buildGroundingSupports(answer, citedIndices);
 
   console.log(`[RAG] Generated answer with ${citedIndices.length} citations`);
+
+  if (enableTrace) {
+    appendTrace('8. Final Response', {
+      answerLength: answer.length,
+      answer,
+      groundingChunksCount: groundingChunks.length,
+      groundingChunks: groundingChunks.map((c, i) => ({
+        index: i,
+        paper_id: c.retrievedContext?.paper_id,
+        textPreview: c.retrievedContext?.text?.substring(0, 200) + '...',
+      })),
+      groundingSupportsCount: groundingSupports.length,
+      groundingSupports,
+    });
+    endAPITrace();
+  }
 
   return {
     answer,
@@ -233,10 +369,13 @@ ${context}
 async function generateResponse(
   query: string,
   context: string,
-  conversationHistory: ConversationMessage[]
+  conversationHistory: ConversationMessage[],
+  enableTrace: boolean = false
 ): Promise<string> {
   return withGeminiErrorHandling(async () => {
     const client = getGeminiClient();
+
+    const prompt = buildPrompt(query, context);
 
     // Build conversation contents
     const contents = [
@@ -248,45 +387,77 @@ async function generateResponse(
       // Current query with context
       {
         role: 'user' as const,
-        parts: [{ text: buildPrompt(query, context) }],
+        parts: [{ text: prompt }],
       },
     ];
 
-    const response = await client.models.generateContent({
-      model: 'gemini-2.0-flash',
+    const requestConfig = {
+      model: 'gemini-3-pro-preview',
       contents,
       config: {
         systemInstruction: CUSTOM_RAG_SYSTEM_PROMPT,
         temperature: 0.2, // Low temperature for consistent, factual responses
         maxOutputTokens: 4096,
       },
-    });
+    };
+
+    if (enableTrace) {
+      appendTrace('5. Gemini API Request', {
+        model: requestConfig.model,
+        systemInstruction: CUSTOM_RAG_SYSTEM_PROMPT,
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+        contentsCount: contents.length,
+        userPrompt: prompt,
+        conversationHistoryInRequest: conversationHistory.slice(-10).map(m => ({
+          role: m.role,
+          contentLength: m.content.length,
+        })),
+      });
+    }
+
+    const response = await client.models.generateContent(requestConfig);
 
     return response.text || 'No response generated.';
   });
 }
 
 /**
- * Parse [CITE:N] citations from response text
+ * Parse citations from response text
+ * Supports both [CITE:N] and [N] formats (Gemini 3 Pro Preview uses [N])
+ *
+ * Also normalizes the response to use [CITE:N] format for consistent frontend rendering
  */
 function parseCitations(
   text: string,
   maxChunks: number
 ): { answer: string; citedIndices: number[] } {
   const citedIndices: number[] = [];
-  const citeRegex = /\[CITE:(\d+)\]/g;
+
+  // Match both [CITE:N] and [N] formats (but not [N] when N is very large, likely not a citation)
+  // [CITE:N] - explicit citation format
+  // [N] - simple format (common from Gemini models), but avoid matching things like [100+] or [2024]
+  const citeRegex = /\[CITE:(\d+)\]|\[(\d{1,2})\](?!\d)/g;
 
   let match;
   while ((match = citeRegex.exec(text)) !== null) {
-    const idx = parseInt(match[1], 10) - 1; // 1-indexed to 0-indexed
+    // match[1] is for [CITE:N], match[2] is for [N]
+    const numStr = match[1] || match[2];
+    const idx = parseInt(numStr, 10) - 1; // 1-indexed to 0-indexed
     if (idx >= 0 && idx < maxChunks && !citedIndices.includes(idx)) {
       citedIndices.push(idx);
     }
   }
 
-  // Keep the [CITE:N] markers in the answer for frontend rendering
-  // Frontend can convert these to interactive citations
-  const answer = text;
+  // Normalize [N] format to [CITE:N] for consistent frontend rendering
+  // This ensures the frontend only needs to handle one format
+  const answer = text.replace(/\[(\d{1,2})\](?!\d)/g, (match, num) => {
+    const idx = parseInt(num, 10) - 1;
+    if (idx >= 0 && idx < maxChunks) {
+      return `[CITE:${num}]`;
+    }
+    return match; // Keep original if out of range
+  });
 
   return { answer, citedIndices };
 }

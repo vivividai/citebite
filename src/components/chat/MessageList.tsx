@@ -7,17 +7,21 @@ import { UserMessage } from './UserMessage';
 import { AssistantMessage } from './AssistantMessage';
 import { PendingSteps } from './PendingSteps';
 import { CitedPaper } from './CitationCard';
+import { PaperInfo } from './SourceDetailDialog';
 
 interface MessageListProps {
   conversationId: string;
   collectionId: string;
   isPending?: boolean;
+  /** Map of paper_id to paper metadata for displaying paper info in source dialog */
+  paperMap?: Map<string, PaperInfo>;
 }
 
 export function MessageList({
   conversationId,
   collectionId,
   isPending = false,
+  paperMap,
 }: MessageListProps) {
   const { data, isLoading, error } = useMessages(conversationId);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -115,6 +119,7 @@ export function MessageList({
             timestamp={message.timestamp}
             citedPapers={citedPapers}
             collectionId={collectionId}
+            paperMap={paperMap}
           />
         );
       })}

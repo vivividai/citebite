@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useQueryClient } from '@tanstack/react-query';
+import { ModelSelector, GeminiModel } from './ModelSelector';
 
 type SendMessageMutation = ReturnType<typeof useSendMessage>;
 
@@ -27,6 +28,8 @@ export function MessageInput({
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [selectedModel, setSelectedModel] =
+    useState<GeminiModel>('gemini-2.5-flash');
   const internalSendMessage = useSendMessage();
   const sendMessage = sendMessageMutation || internalSendMessage;
   const queryClient = useQueryClient();
@@ -93,6 +96,7 @@ export function MessageInput({
       await sendMessage.mutateAsync({
         conversationId: targetConversationId,
         content: messageToSend,
+        model: selectedModel,
       });
       lastSentMessageRef.current = null;
     } catch (err) {
@@ -164,9 +168,16 @@ export function MessageInput({
           )}
         </Button>
       </form>
-      <p className="text-xs text-muted-foreground mt-2">
-        AI responses include citations to papers in your collection
-      </p>
+      <div className="flex items-center justify-between mt-2">
+        <p className="text-xs text-muted-foreground">
+          AI responses include citations to papers in your collection
+        </p>
+        <ModelSelector
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          disabled={isDisabled}
+        />
+      </div>
     </div>
   );
 }

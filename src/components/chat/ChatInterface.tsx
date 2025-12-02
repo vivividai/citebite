@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { ConversationList } from './ConversationList';
 import { useSendMessage } from '@/hooks/useSendMessage';
+import { useCollectionPapers } from '@/hooks/useCollectionPapers';
+import { PaperInfo } from './SourceDetailDialog';
 
 interface ChatInterfaceProps {
   collectionId: string;
@@ -21,6 +23,25 @@ export function ChatInterface({
 
   // Shared sendMessage mutation for optimistic UI and pending state
   const sendMessage = useSendMessage();
+
+  // Fetch papers for this collection to display in source dialog
+  const { data: papers } = useCollectionPapers(collectionId);
+
+  // Build paper map for efficient lookup by paper_id
+  const paperMap = useMemo(() => {
+    const map = new Map<string, PaperInfo>();
+    if (papers) {
+      for (const paper of papers) {
+        map.set(paper.paper_id, {
+          paper_id: paper.paper_id,
+          title: paper.title,
+          year: paper.year,
+          authors: paper.authors,
+        });
+      }
+    }
+    return map;
+  }, [papers]);
 
   const handleStartNewConversation = () => {
     // Don't create conversation immediately, just set to null
@@ -48,6 +69,7 @@ export function ChatInterface({
               conversationId={conversationId}
               collectionId={collectionId}
               isPending={sendMessage.isPending}
+              paperMap={paperMap}
             />
             <MessageInput
               conversationId={conversationId}

@@ -156,7 +156,7 @@ export async function POST(
       );
     }
 
-    const { content: userMessage } = result.data;
+    const { content: userMessage, model } = result.data;
 
     // 3. Verify conversation exists and user has access
     const conversation = await getConversationWithOwnership(
@@ -222,6 +222,7 @@ export async function POST(
     console.log(
       `[API] Querying Custom RAG for conversation ${conversationId} with ${formattedHistory.length} history messages`
     );
+    console.log(`[API] Using model: ${model}`);
     if (enableTrace) {
       console.log(
         '[API] API Trace mode ENABLED - will log all API calls to docs/info/rag-api-trace.md'
@@ -234,7 +235,8 @@ export async function POST(
         collection.id,
         userMessage,
         formattedHistory,
-        enableTrace
+        enableTrace,
+        model
       );
     } catch (error) {
       console.error('[API] Custom RAG query error:', error);

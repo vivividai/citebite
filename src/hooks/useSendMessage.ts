@@ -4,9 +4,15 @@ import { Database } from '@/types/database.types';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 
+export type GeminiModel =
+  | 'gemini-2.5-flash'
+  | 'gemini-2.5-pro-preview-05-06'
+  | 'gemini-3-pro-preview';
+
 export interface SendMessageInput {
   conversationId: string;
   content: string;
+  model?: GeminiModel;
 }
 
 export interface CitedPaper {
@@ -60,13 +66,14 @@ export function useSendMessage() {
     mutationFn: async ({
       conversationId,
       content,
+      model,
     }: SendMessageInput): Promise<SendMessageResponse> => {
       const res = await fetch(`/api/conversations/${conversationId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, model }),
       });
 
       const responseData = await res.json();

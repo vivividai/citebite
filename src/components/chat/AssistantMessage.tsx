@@ -9,7 +9,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CitationCard, CitedPaper } from './CitationCard';
 import { CitedText } from './CitedText';
-import { SourceDetailDialog } from './SourceDetailDialog';
+import { SourceDetailDialog, PaperInfo } from './SourceDetailDialog';
 import { GroundingChunk } from '@/lib/db/messages';
 
 interface AssistantMessageProps {
@@ -17,6 +17,8 @@ interface AssistantMessageProps {
   timestamp: string | null;
   citedPapers?: CitedPaper[];
   collectionId: string;
+  /** Map of paper_id to paper metadata for displaying paper info in source dialog */
+  paperMap?: Map<string, PaperInfo>;
 }
 
 export function AssistantMessage({
@@ -24,6 +26,7 @@ export function AssistantMessage({
   timestamp,
   citedPapers = [],
   collectionId,
+  paperMap,
 }: AssistantMessageProps) {
   const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
     null
@@ -152,6 +155,8 @@ export function AssistantMessage({
         onOpenChange={setIsDialogOpen}
         chunk={selectedChunk}
         sourceIndex={selectedChunkIndex}
+        paperMap={paperMap}
+        collectionId={collectionId}
       />
     </div>
   );

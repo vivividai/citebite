@@ -21,6 +21,15 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_FILES = 50;
 const SESSION_EXPIRY_HOURS = 24;
 
+// Helper function to extract DOI from open_access_pdf_url
+// e.g., "https://dl.acm.org/doi/pdf/10.1145/3644815.3644945" -> "10.1145/3644815.3644945"
+function extractDoiFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  // Match DOI pattern: 10.xxxx/... in the URL
+  const doiMatch = url.match(/10\.\d{4,}\/[^\s]+/);
+  return doiMatch ? doiMatch[0] : null;
+}
+
 interface BulkUploadResponse {
   sessionId: string;
   results: Array<{
@@ -94,15 +103,6 @@ export async function POST(
         { error: 'Failed to fetch collection papers' },
         { status: 500 }
       );
-    }
-
-    // Helper function to extract DOI from open_access_pdf_url
-    // e.g., "https://dl.acm.org/doi/pdf/10.1145/3644815.3644945" -> "10.1145/3644815.3644945"
-    function extractDoiFromUrl(url: string | null): string | null {
-      if (!url) return null;
-      // Match DOI pattern: 10.xxxx/... in the URL
-      const doiMatch = url.match(/10\.\d{4,}\/[^\s]+/);
-      return doiMatch ? doiMatch[0] : null;
     }
 
     // Transform to Paper array

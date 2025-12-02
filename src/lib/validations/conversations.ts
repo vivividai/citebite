@@ -15,6 +15,17 @@ export const createConversationSchema = z.object({
 export type CreateConversationInput = z.infer<typeof createConversationSchema>;
 
 /**
+ * Available Gemini model options
+ */
+export const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-pro-preview-05-06',
+  'gemini-3-pro-preview',
+] as const;
+
+export type GeminiModel = (typeof GEMINI_MODELS)[number];
+
+/**
  * Validation schema for sending a message in a conversation
  */
 export const sendMessageSchema = z.object({
@@ -23,6 +34,7 @@ export const sendMessageSchema = z.object({
     .min(1, 'Message cannot be empty')
     .max(10000, 'Message must be less than 10,000 characters')
     .trim(),
+  model: z.enum(GEMINI_MODELS).optional().default('gemini-2.5-flash'),
 });
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

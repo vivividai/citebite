@@ -4,12 +4,15 @@ import { Database, TablesInsert } from '@/types/database.types';
 type MessageInsert = TablesInsert<'messages'>;
 
 /**
- * Grounding chunk from Gemini File Search API
+ * Grounding chunk from custom RAG or Gemini File Search API
  * Contains the actual text that was retrieved and cited
  */
 export interface GroundingChunk {
   retrievedContext?: {
     text: string;
+    /** Paper ID for looking up paper metadata (custom RAG) */
+    paper_id?: string;
+    /** File search store reference (Gemini File Search - deprecated) */
     fileSearchStore?: string;
   };
 }

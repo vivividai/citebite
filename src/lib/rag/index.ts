@@ -127,7 +127,7 @@ export async function queryRAG(
   query: string,
   conversationHistory: ConversationMessage[] = [],
   enableTrace: boolean = false,
-  model: GeminiModel = 'gemini-2.5-flash-preview-05-20'
+  model: GeminiModel = 'gemini-2.5-flash'
 ): Promise<RAGResponse> {
   // Start API trace if enabled
   if (enableTrace) {
@@ -351,7 +351,7 @@ async function generateResponse(
   context: string,
   conversationHistory: ConversationMessage[],
   enableTrace: boolean = false,
-  model: GeminiModel = 'gemini-2.5-flash-preview-05-20'
+  model: GeminiModel = 'gemini-2.5-flash'
 ): Promise<string> {
   return withGeminiErrorHandling(async () => {
     const client = getGeminiClient();

@@ -59,7 +59,8 @@ export function CreateCollectionDialog() {
     reset,
     setValue,
   } = useForm<CreateCollectionSchema>({
-    resolver: zodResolver(createCollectionSchema),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(createCollectionSchema) as any,
     defaultValues: {
       name: '',
       keywords: '',

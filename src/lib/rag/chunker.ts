@@ -23,13 +23,13 @@ export interface Chunk {
 /**
  * Default chunking configuration
  *
- * - 1000 chars ≈ 250 tokens (good for embedding models)
- * - 200 char overlap ensures context continuity
+ * - 3200 chars ≈ 800 tokens (good for embedding models)
+ * - 800 char overlap ≈ 200 tokens ensures context continuity
  * - 100 char minimum prevents tiny fragments
  */
 export const DEFAULT_CHUNK_CONFIG: ChunkConfig = {
-  maxChars: 1000,
-  overlapChars: 200,
+  maxChars: 3200,
+  overlapChars: 800,
   minChars: 100,
 };
 

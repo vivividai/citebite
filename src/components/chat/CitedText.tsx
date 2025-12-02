@@ -12,6 +12,18 @@ interface CitedTextProps {
   content: string;
   groundingChunks?: GroundingChunk[];
   groundingSupports?: GroundingSupport[];
+  /** Map of paper_id to paper metadata for displaying paper info in source dialog */
+  paperMap?: Map<
+    string,
+    {
+      paper_id: string;
+      title: string;
+      year: number | null;
+      authors: { name: string }[] | null;
+    }
+  >;
+  /** Collection ID for linking to paper detail */
+  collectionId?: string;
 }
 
 /**
@@ -279,7 +291,12 @@ function createMarkdownComponents(): Components {
  * Parses [CITE:N] markers in the text and renders them as clickable numbers
  * that open a dialog showing the source content.
  */
-export function CitedText({ content, groundingChunks = [] }: CitedTextProps) {
+export function CitedText({
+  content,
+  groundingChunks = [],
+  paperMap,
+  collectionId,
+}: CitedTextProps) {
   const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
     null
   );
@@ -326,6 +343,8 @@ export function CitedText({ content, groundingChunks = [] }: CitedTextProps) {
         onOpenChange={setIsDialogOpen}
         chunk={selectedChunk}
         sourceIndex={selectedIndex}
+        paperMap={paperMap}
+        collectionId={collectionId}
       />
     </>
   );

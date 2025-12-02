@@ -62,7 +62,12 @@ export function AssistantMessage({
         <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
           <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-headings:my-2 prose-headings:font-semibold prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-pre:my-2">
             {hasGroundingData ? (
-              <CitedText content={content} groundingChunks={groundingChunks} />
+              <CitedText
+                content={content}
+                groundingChunks={groundingChunks}
+                paperMap={paperMap}
+                collectionId={collectionId}
+              />
             ) : (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}

@@ -237,6 +237,12 @@ export async function queryRAG(
   }
 
   // 6. Build grounding data for frontend
+  // Create a map from original chunk index to groundingChunks array index
+  const indexMap = new Map<number, number>();
+  citedIndices.forEach((originalIdx, groundingIdx) => {
+    indexMap.set(originalIdx, groundingIdx);
+  });
+
   const groundingChunks: GroundingChunk[] = citedIndices.map(idx => ({
     retrievedContext: {
       text: chunks[idx]?.content || '',
@@ -246,7 +252,11 @@ export async function queryRAG(
   }));
 
   // Build grounding supports (map text segments to chunk indices)
-  const groundingSupports = buildGroundingSupports(answer, citedIndices);
+  const groundingSupports = buildGroundingSupports(
+    answer,
+    citedIndices,
+    indexMap
+  );
 
   console.log(`[RAG] Generated answer with ${citedIndices.length} citations`);
 
@@ -500,26 +510,36 @@ function parseCitations(
  * Build grounding supports (text segment → chunk mapping)
  *
  * Creates a simplified mapping where each [CITE:N] marker
- * is linked to its corresponding chunk index.
+ * is linked to its corresponding chunk index in the groundingChunks array.
+ *
+ * @param answer - The generated answer text containing [CITE:N] markers
+ * @param citedIndices - Array of original chunk indices that were cited
+ * @param indexMap - Map from original chunk index to groundingChunks array index
  */
 function buildGroundingSupports(
   answer: string,
-  citedIndices: number[]
+  citedIndices: number[],
+  indexMap: Map<number, number>
 ): GroundingSupport[] {
   const supports: GroundingSupport[] = [];
   const citeRegex = /\[CITE:(\d+)\]/g;
 
   let match;
   while ((match = citeRegex.exec(answer)) !== null) {
-    const idx = parseInt(match[1], 10) - 1;
-    if (idx >= 0 && citedIndices.includes(idx)) {
+    // Convert 1-indexed citation to 0-indexed chunk index
+    const originalIdx = parseInt(match[1], 10) - 1;
+
+    // Get the corresponding index in groundingChunks array
+    const groundingIdx = indexMap.get(originalIdx);
+
+    if (groundingIdx !== undefined) {
       supports.push({
         segment: {
           startIndex: match.index,
           endIndex: match.index + match[0].length,
           text: match[0],
         },
-        groundingChunkIndices: [citedIndices.indexOf(idx)],
+        groundingChunkIndices: [groundingIdx],
       });
     }
   }

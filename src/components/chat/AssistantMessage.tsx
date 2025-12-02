@@ -10,7 +10,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CitationCard, CitedPaper } from './CitationCard';
 import { CitedText } from './CitedText';
 import { SourceDetailDialog } from './SourceDetailDialog';
-import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
+import { GroundingChunk } from '@/lib/db/messages';
 
 interface AssistantMessageProps {
   content: string;
@@ -38,13 +38,8 @@ export function AssistantMessage({
   // Extract grounding data from citedPapers (new format)
   const groundingData = citedPapers[0];
   const groundingChunks = groundingData?.chunks as GroundingChunk[] | undefined;
-  const groundingSupports = groundingData?.supports as
-    | GroundingSupport[]
-    | undefined;
-
   // Check if this is new grounding-based citation format
-  const hasGroundingData =
-    groundingChunks && groundingChunks.length > 0 && groundingSupports;
+  const hasGroundingData = groundingChunks && groundingChunks.length > 0;
 
   // Filter for legacy paper citations (paperId-based)
   const legacyPaperCitations = citedPapers.filter(p => p.paperId);
@@ -64,11 +59,7 @@ export function AssistantMessage({
         <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
           <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-headings:my-2 prose-headings:font-semibold prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-pre:my-2">
             {hasGroundingData ? (
-              <CitedText
-                content={content}
-                groundingChunks={groundingChunks}
-                groundingSupports={groundingSupports}
-              />
+              <CitedText content={content} groundingChunks={groundingChunks} />
             ) : (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}

@@ -111,12 +111,15 @@ function buildSynthesisPromptWithCitations(
     .join('\n\n');
 
   // Build sub-query summary section
+  // Remove [CITE:N] markers from sub-query answers to prevent index confusion
+  // (sub-query answers have local indices that don't match aggregated chunk indices)
   const subQuerySection = subQueryResults
     .filter(r => r.success && r.answer.trim().length > 0)
-    .map(
-      (r, i) => `### Sub-Query ${i + 1}: ${r.subQuery}
-${r.answer}`
-    )
+    .map((r, i) => {
+      const cleanedAnswer = r.answer.replace(/\[CITE:\d+(?:,\s*\d+)*\]/g, '');
+      return `### Sub-Query ${i + 1}: ${r.subQuery}
+${cleanedAnswer}`;
+    })
     .join('\n\n');
 
   return `## Original Question

@@ -1,19 +1,27 @@
 /**
  * Gemini Embedding Functions for Custom RAG
  *
- * Provides functions to generate embeddings using Gemini's text-embedding-004 model.
+ * Provides functions to generate embeddings using Gemini's gemini-embedding-001 model.
  * Supports both single query embeddings and batch document embeddings.
+ *
+ * Note: gemini-embedding-001 natively outputs 3072 dimensions, but we use MRL
+ * (Matryoshka Representation Learning) to output 768 dimensions for backward
+ * compatibility with existing pgvector schema.
  */
 
 import { getGeminiClient, withGeminiErrorHandling } from '@/lib/gemini/client';
 
 /** Gemini embedding model name */
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 /** Maximum texts per batch request (process sequentially but in parallel batches) */
 const BATCH_SIZE = 10;
 
-/** Embedding vector dimensions for text-embedding-004 */
+/**
+ * Embedding vector dimensions.
+ * gemini-embedding-001 supports 768, 1536, or 3072 via MRL.
+ * We use 768 for backward compatibility with existing pgvector schema.
+ */
 export const EMBEDDING_DIMENSIONS = 768;
 
 /**
@@ -39,6 +47,7 @@ export async function generateQueryEmbedding(text: string): Promise<number[]> {
       contents: [{ parts: [{ text }] }],
       config: {
         taskType: 'RETRIEVAL_QUERY',
+        outputDimensionality: EMBEDDING_DIMENSIONS,
       },
     });
 
@@ -68,6 +77,7 @@ async function generateSingleDocumentEmbedding(
     contents: [{ parts: [{ text }] }],
     config: {
       taskType: 'RETRIEVAL_DOCUMENT',
+      outputDimensionality: EMBEDDING_DIMENSIONS,
     },
   });
 

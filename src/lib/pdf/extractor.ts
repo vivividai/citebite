@@ -8,6 +8,21 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse = require('pdf-parse');
 
+/**
+ * Regex to detect reference section headings in academic papers.
+ *
+ * Matches patterns like:
+ * - "References", "REFERENCES", "references"
+ * - "Bibliography", "BIBLIOGRAPHY"
+ * - "Works Cited", "Literature Cited", "Citations"
+ * - "7. References", "8 References" (numbered sections)
+ * - "VI. References", "VII References" (Roman numeral sections)
+ *
+ * Uses line anchors to avoid matching inline mentions like "See References [1-5]"
+ */
+const REFERENCE_SECTION_PATTERN =
+  /^(?:\d+\.?\s*)?(?:[IVXLCDM]+\.?\s*)?(references|bibliography|works\s+cited|literature\s+cited|citations)\s*$/im;
+
 export interface ExtractedPdf {
   text: string;
   numPages: number;
@@ -33,8 +48,13 @@ export async function extractTextFromPdf(
 ): Promise<ExtractedPdf> {
   try {
     const result = await pdfParse(buffer);
+
+    // Clean text and remove references section
+    let text = cleanText(result.text || '');
+    text = removeReferencesSection(text);
+
     return {
-      text: cleanText(result.text || ''),
+      text,
       numPages: result.numpages || 0,
       metadata: result.info || {},
     };
@@ -43,6 +63,45 @@ export async function extractTextFromPdf(
       error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`PDF extraction failed: ${errorMessage}`);
   }
+}
+
+/**
+ * Remove the references section and all content after it from extracted text.
+ *
+ * Academic papers typically end with a references section that contains
+ * citation lists which are not useful for RAG retrieval and can introduce
+ * noise in embeddings. This also removes appendices that come after references.
+ *
+ * @param text - The full extracted text from PDF
+ * @returns Text with references section removed, or original if no references found
+ */
+function removeReferencesSection(text: string): string {
+  const match = text.match(REFERENCE_SECTION_PATTERN);
+
+  if (!match || match.index === undefined) {
+    // No references section found, return original text
+    return text;
+  }
+
+  // Find the start of the line containing the references heading
+  const matchIndex = match.index;
+  let lineStart = matchIndex;
+
+  // Walk backwards to find the start of the line
+  while (lineStart > 0 && text[lineStart - 1] !== '\n') {
+    lineStart--;
+  }
+
+  // Truncate at the start of the references line
+  const truncatedText = text.slice(0, lineStart).trim();
+
+  // Safety check: don't truncate if result is suspiciously short
+  // This handles edge cases like title containing "References"
+  if (truncatedText.length < 500) {
+    return text;
+  }
+
+  return truncatedText;
 }
 
 /**

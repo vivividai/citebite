@@ -6,15 +6,15 @@ Gemini File Search API 기반 RAG를 Supabase pgvector 기반 커스텀 RAG로 �
 
 ## 1. 기술 스택 선정
 
-| Component           | Choice                    | Rationale                                                  |
-| ------------------- | ------------------------- | ---------------------------------------------------------- |
-| **Vector DB**       | Supabase pgvector         | 기존 Supabase 인프라 활용, 추가 비용 없음, PostgreSQL 통합 |
-| **Index Type**      | HNSW                      | 높은 recall(99%+), 빠른 쿼리, 연구 논문 검색에 적합        |
-| **Embedding Model** | Gemini text-embedding-004 | 기존 Gemini API 사용 중, 768 dimensions, 한국어 지원       |
-| **Chunking**        | 고정 크기 + 오버랩        | 간단한 구현, 일관된 결과, 문장 경계 존중                   |
-| **Search Strategy** | 하이브리드 (RRF)          | 벡터(70%) + 키워드(30%) 결합, 정확도 향상                  |
-| **PDF Parser**      | pdf-parse                 | 이미 설치됨, 추가 의존성 없음, 충분한 성능                 |
-| **Query Cache**     | 없음 (MVP)                | 단순화 우선, 나중에 Redis로 추가 가능                      |
+| Component           | Choice                      | Rationale                                                  |
+| ------------------- | --------------------------- | ---------------------------------------------------------- |
+| **Vector DB**       | Supabase pgvector           | 기존 Supabase 인프라 활용, 추가 비용 없음, PostgreSQL 통합 |
+| **Index Type**      | HNSW                        | 높은 recall(99%+), 빠른 쿼리, 연구 논문 검색에 적합        |
+| **Embedding Model** | Gemini gemini-embedding-001 | 최신 모델, MRL로 768 dimensions 출력, 100+ 언어 지원       |
+| **Chunking**        | 고정 크기 + 오버랩          | 간단한 구현, 일관된 결과, 문장 경계 존중                   |
+| **Search Strategy** | 하이브리드 (RRF)            | 벡터(70%) + 키워드(30%) 결합, 정확도 향상                  |
+| **PDF Parser**      | pdf-parse                   | 이미 설치됨, 추가 의존성 없음, 충분한 성능                 |
+| **Query Cache**     | 없음 (MVP)                  | 단순화 우선, 나중에 Redis로 추가 가능                      |
 
 ---
 
@@ -89,7 +89,7 @@ CREATE TABLE paper_chunks (
   chunk_index INT NOT NULL,
   token_count INT NOT NULL,
 
-  -- Vector embedding (Gemini text-embedding-004: 768 dimensions)
+  -- Vector embedding (Gemini gemini-embedding-001: 768 dimensions via MRL)
   embedding vector(768) NOT NULL,
 
   -- Full-text search (자동 생성)
@@ -362,7 +362,7 @@ function estimateTokens(text: string): number {
 // src/lib/rag/embeddings.ts
 import { getGeminiClient } from '@/lib/gemini/client';
 
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 const BATCH_SIZE = 100; // Gemini 배치 최대 크기
 const EMBEDDING_DIMENSIONS = 768;
 
@@ -855,12 +855,12 @@ const poolConfig = {
 
 ### 11.1 Gemini Embedding 비용
 
-| Item               | Cost                 |
-| ------------------ | -------------------- |
-| text-embedding-004 | $0.00001 / 1K tokens |
-| 논문당 평균 토큰   | ~20,000 tokens       |
-| 논문당 임베딩 비용 | ~$0.0002             |
-| 100개 논문         | ~$0.02               |
+| Item                 | Cost                 |
+| -------------------- | -------------------- |
+| gemini-embedding-001 | $0.00001 / 1K tokens |
+| 논문당 평균 토큰     | ~20,000 tokens       |
+| 논문당 임베딩 비용   | ~$0.0002             |
+| 100개 논문           | ~$0.02               |
 
 ### 11.2 pgvector 스토리지
 

@@ -216,13 +216,26 @@ export async function POST(
     }));
 
     // 7. Query Custom RAG
+    // Enable API trace if DEBUG_RAG_TRACE header is set
+    const enableTrace = request.headers.get('X-Debug-RAG-Trace') === 'true';
+
     console.log(
       `[API] Querying Custom RAG for conversation ${conversationId} with ${formattedHistory.length} history messages`
     );
+    if (enableTrace) {
+      console.log(
+        '[API] API Trace mode ENABLED - will log all API calls to docs/info/rag-api-trace.md'
+      );
+    }
 
     let aiResponse;
     try {
-      aiResponse = await queryRAG(collection.id, userMessage, formattedHistory);
+      aiResponse = await queryRAG(
+        collection.id,
+        userMessage,
+        formattedHistory,
+        enableTrace
+      );
     } catch (error) {
       console.error('[API] Custom RAG query error:', error);
       const errorMessage =

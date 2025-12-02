@@ -319,6 +319,37 @@ async function fetchPaperMetadata(
 }
 
 /**
+ * Remove paper reference markers from chunk content
+ *
+ * Academic papers contain inline references like [12], [1,2,3], [1-5], etc.
+ * These cause noise when LLM parses citations since our system uses [CITE:N].
+ *
+ * Patterns removed:
+ * - [12] - single reference
+ * - [1,2,3] or [1, 2, 3] - comma-separated references
+ * - [1-5] - range references
+ * - [12][13][14] - consecutive references
+ * - [1,2-5,7] - mixed references
+ *
+ * NOT removed (to preserve readability):
+ * - [Figure 1], [Table 2] - figure/table references
+ * - [a], [b], [c] - alphabetic references
+ * - [2024] - years (4 digits)
+ */
+function removeReferences(content: string): string {
+  // Match patterns like [12], [1,2,3], [1-5], [1,2-5,7]
+  // Uses negative lookahead/lookbehind to avoid matching years like [2024]
+  // Pattern breakdown:
+  // - \[ : opening bracket
+  // - \d{1,3} : 1-3 digit number (not 4 to avoid years)
+  // - (?:[,\s-]+\d{1,3})* : optionally followed by comma/dash/space and more numbers
+  // - \] : closing bracket
+  const referencePattern = /\[\d{1,3}(?:[,\s-]+\d{1,3})*\]/g;
+
+  return content.replace(referencePattern, '');
+}
+
+/**
  * Build context string from search results
  */
 function buildContext(
@@ -335,9 +366,12 @@ function buildContext(
         ? `"${paper.title}" (${paper.authors}, ${paper.year || 'n.d.'})`
         : `Paper ID: ${chunk.paperId}`;
 
+      // Remove paper reference markers to avoid citation confusion
+      const cleanedContent = removeReferences(chunk.content);
+
       return `[${idx + 1}] Source: ${paperInfo}
 ---
-${chunk.content}
+${cleanedContent}
 ---`;
     })
     .join('\n\n');

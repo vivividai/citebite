@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, Fragment } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
+import { SourceDetailDialog } from './SourceDetailDialog';
 
 interface CitedTextProps {
   content: string;
@@ -13,246 +14,128 @@ interface CitedTextProps {
   groundingSupports?: GroundingSupport[];
 }
 
-interface CitationRange {
-  startIndex: number;
-  endIndex: number;
-  chunkIndices: number[];
-}
-
 /**
- * Build a lookup structure for citation ranges
+ * Parse [CITE:N] markers from text and split into segments
+ * Returns array of either plain text or citation references
  */
-function buildCitationRanges(supports: GroundingSupport[]): CitationRange[] {
-  return supports
-    .map(support => ({
-      startIndex: support.segment.startIndex,
-      endIndex: support.segment.endIndex,
-      chunkIndices: support.groundingChunkIndices,
-    }))
-    .sort((a, b) => a.startIndex - b.startIndex);
-}
+function parseTextWithCitations(
+  text: string
+): Array<
+  { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
+> {
+  const segments: Array<
+    { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
+  > = [];
+  const citeRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]/g;
 
-/**
- * Find which citation ranges overlap with a given text position
- */
-function findOverlappingCitations(
-  textStart: number,
-  textEnd: number,
-  citationRanges: CitationRange[]
-): CitationRange[] {
-  return citationRanges.filter(
-    range => range.startIndex < textEnd && range.endIndex > textStart
-  );
-}
+  let lastIndex = 0;
+  let match;
 
-/**
- * Split text into segments based on citation overlaps
- */
-function splitTextWithCitations(
-  text: string,
-  textStartInContent: number,
-  citationRanges: CitationRange[]
-): Array<{ text: string; chunkIndices?: number[] }> {
-  const textEnd = textStartInContent + text.length;
-  const overlapping = findOverlappingCitations(
-    textStartInContent,
-    textEnd,
-    citationRanges
-  );
+  while ((match = citeRegex.exec(text)) !== null) {
+    // Add text before this citation
+    if (match.index > lastIndex) {
+      segments.push({
+        type: 'text',
+        content: text.slice(lastIndex, match.index),
+      });
+    }
 
-  if (overlapping.length === 0) {
-    return [{ text }];
+    // Parse citation indices (0-based from LLM, matching aggregated chunk indices)
+    const indices = match[1]
+      .split(',')
+      .map(n => parseInt(n.trim(), 10))
+      .filter(n => !isNaN(n) && n >= 0);
+
+    if (indices.length > 0) {
+      segments.push({
+        type: 'cite',
+        indices,
+      });
+    }
+
+    lastIndex = match.index + match[0].length;
   }
 
-  const segments: Array<{ text: string; chunkIndices?: number[] }> = [];
-
-  // Collect all boundary points within this text
-  const boundaries = new Set<number>();
-  boundaries.add(0);
-  boundaries.add(text.length);
-
-  for (const range of overlapping) {
-    const relativeStart = Math.max(0, range.startIndex - textStartInContent);
-    const relativeEnd = Math.min(
-      text.length,
-      range.endIndex - textStartInContent
-    );
-    if (relativeStart >= 0 && relativeStart <= text.length) {
-      boundaries.add(relativeStart);
-    }
-    if (relativeEnd >= 0 && relativeEnd <= text.length) {
-      boundaries.add(relativeEnd);
-    }
-  }
-
-  const sortedBoundaries = Array.from(boundaries).sort((a, b) => a - b);
-
-  for (let i = 0; i < sortedBoundaries.length - 1; i++) {
-    const start = sortedBoundaries[i];
-    const end = sortedBoundaries[i + 1];
-    const segmentText = text.slice(start, end);
-
-    if (segmentText.length === 0) continue;
-
-    // Find which citations cover this segment
-    const segmentStartInContent = textStartInContent + start;
-    const segmentEndInContent = textStartInContent + end;
-
-    const coveringCitations = overlapping.filter(
-      range =>
-        range.startIndex <= segmentStartInContent &&
-        range.endIndex >= segmentEndInContent
-    );
-
-    if (coveringCitations.length > 0) {
-      // Merge all chunk indices
-      const allChunkIndices = Array.from(
-        new Set(coveringCitations.flatMap(c => c.chunkIndices))
-      );
-      segments.push({ text: segmentText, chunkIndices: allChunkIndices });
-    } else {
-      segments.push({ text: segmentText });
-    }
+  // Add remaining text
+  if (lastIndex < text.length) {
+    segments.push({
+      type: 'text',
+      content: text.slice(lastIndex),
+    });
   }
 
   return segments;
 }
 
 /**
- * Tooltip component showing chunk preview
+ * Clickable citation number component
  */
-function ChunkTooltip({
-  chunks,
-  chunkIndices,
-  isVisible,
+function CitationNumber({
+  indices,
+  onCitationClick,
 }: {
-  chunks: GroundingChunk[];
-  chunkIndices: number[];
-  isVisible: boolean;
-}) {
-  if (!isVisible) return null;
-
-  return (
-    <div className="absolute z-50 bottom-full left-0 mb-2 w-80 max-w-[90vw] bg-gray-900 text-white text-xs rounded-lg shadow-lg p-3 pointer-events-none">
-      <div className="space-y-2">
-        {chunkIndices.map((index, i) => {
-          const chunk = chunks[index];
-          if (!chunk?.retrievedContext?.text) return null;
-
-          const preview = chunk.retrievedContext.text.slice(0, 200);
-          return (
-            <div key={i} className="border-l-2 border-blue-400 pl-2">
-              <p className="font-medium text-blue-300 mb-1">
-                Source {index + 1}
-              </p>
-              <p className="text-gray-200 line-clamp-3">
-                {preview}
-                {chunk.retrievedContext.text.length > 200 && '...'}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-      {/* Tooltip arrow */}
-      <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
-    </div>
-  );
-}
-
-/**
- * Highlighted citation span component
- */
-function CitationSpan({
-  children,
-  chunkIndices,
-  chunks,
-  segmentKey,
-  hoveredSegment,
-  setHoveredSegment,
-}: {
-  children: React.ReactNode;
-  chunkIndices: number[];
-  chunks: GroundingChunk[];
-  segmentKey: string;
-  hoveredSegment: string | null;
-  setHoveredSegment: (key: string | null) => void;
+  indices: number[];
+  onCitationClick: (index: number) => void;
 }) {
   return (
-    <span
-      className="relative inline bg-blue-50 border-b-2 border-blue-300 cursor-help hover:bg-blue-100 transition-colors"
-      onMouseEnter={() => setHoveredSegment(segmentKey)}
-      onMouseLeave={() => setHoveredSegment(null)}
-    >
-      {children}
-      <ChunkTooltip
-        chunks={chunks}
-        chunkIndices={chunkIndices}
-        isVisible={hoveredSegment === segmentKey}
-      />
+    <span className="inline-flex gap-0.5">
+      {indices.map((idx, i) => (
+        <button
+          key={i}
+          onClick={() => onCitationClick(idx)}
+          className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-colors cursor-pointer align-super"
+          title={`View source ${idx + 1}`}
+        >
+          {idx + 1}
+        </button>
+      ))}
     </span>
   );
 }
 
 /**
- * Context for passing citation data through the component tree
+ * Context for passing citation click handler through markdown components
  */
 interface CitationContextValue {
-  citationRanges: CitationRange[];
   chunks: GroundingChunk[];
-  getTextPosition: () => number;
-  advancePosition: (length: number) => void;
-  hoveredSegment: string | null;
-  setHoveredSegment: (key: string | null) => void;
+  onCitationClick: (index: number) => void;
 }
 
 const CitationContext = React.createContext<CitationContextValue | null>(null);
 
 /**
- * Text renderer that applies citation highlighting
+ * Text node renderer that handles [CITE:N] markers
  */
 function CitedTextNode({ children }: { children: string }) {
   const ctx = React.useContext(CitationContext);
   if (!ctx) return <>{children}</>;
 
-  const {
-    citationRanges,
-    chunks,
-    getTextPosition,
-    advancePosition,
-    hoveredSegment,
-    setHoveredSegment,
-  } = ctx;
-
-  const textStart = getTextPosition();
-  const segments = splitTextWithCitations(children, textStart, citationRanges);
-  advancePosition(children.length);
+  const segments = parseTextWithCitations(children);
 
   return (
     <>
       {segments.map((segment, idx) => {
-        const key = `${textStart}-${idx}`;
-        if (segment.chunkIndices) {
-          return (
-            <CitationSpan
-              key={key}
-              chunkIndices={segment.chunkIndices}
-              chunks={chunks}
-              segmentKey={key}
-              hoveredSegment={hoveredSegment}
-              setHoveredSegment={setHoveredSegment}
-            >
-              {segment.text}
-            </CitationSpan>
-          );
+        if (segment.type === 'text') {
+          return <Fragment key={idx}>{segment.content}</Fragment>;
         }
-        return <React.Fragment key={key}>{segment.text}</React.Fragment>;
+        // Filter to valid indices
+        const validIndices = segment.indices.filter(i => i < ctx.chunks.length);
+        if (validIndices.length === 0) return null;
+
+        return (
+          <CitationNumber
+            key={idx}
+            indices={validIndices}
+            onCitationClick={ctx.onCitationClick}
+          />
+        );
       })}
     </>
   );
 }
 
 /**
- * Recursively process React children to apply citation highlighting to text nodes
+ * Recursively process React children to handle citation markers in text
  */
 function processChildren(children: React.ReactNode): React.ReactNode {
   return React.Children.map(children, child => {
@@ -270,11 +153,11 @@ function processChildren(children: React.ReactNode): React.ReactNode {
 }
 
 /**
- * Create markdown components that preserve block structure while applying citations
+ * Create markdown components that process citation markers
  */
 function createMarkdownComponents(): Components {
   return {
-    // Block elements - preserved with proper styling
+    // Block elements
     p: ({ children }) => (
       <p className="my-2 leading-relaxed">{processChildren(children)}</p>
     ),
@@ -296,7 +179,7 @@ function createMarkdownComponents(): Components {
       </h4>
     ),
 
-    // Lists - proper block structure
+    // Lists
     ul: ({ children }) => (
       <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>
     ),
@@ -390,42 +273,31 @@ function createMarkdownComponents(): Components {
 }
 
 /**
- * CitedText component renders markdown with interactive citation markers
+ * CitedText component renders markdown with clickable citation markers
  *
- * Text segments that are cited (have groundingSupport) are highlighted and show
- * a tooltip on hover with the source chunk preview. Block structure (paragraphs,
- * lists, headers) is preserved for proper formatting.
+ * Parses [CITE:N] markers in the text and renders them as clickable numbers
+ * that open a dialog showing the source content.
  */
-export function CitedText({
-  content,
-  groundingChunks = [],
-  groundingSupports = [],
-}: CitedTextProps) {
-  const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
-
-  // Build citation ranges once
-  const citationRanges = useMemo(
-    () => buildCitationRanges(groundingSupports),
-    [groundingSupports]
+export function CitedText({ content, groundingChunks = [] }: CitedTextProps) {
+  const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
+    null
   );
-
-  // Position tracker for mapping markdown text to original content positions
-  // We use a ref-like pattern with closure to track position across renders
-  const positionRef = React.useRef(0);
-
-  // Reset position on each render
-  positionRef.current = 0;
-
-  const getTextPosition = useCallback(() => positionRef.current, []);
-  const advancePosition = useCallback((length: number) => {
-    positionRef.current += length;
-  }, []);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   // Create markdown components
   const components = useMemo(() => createMarkdownComponents(), []);
 
-  // If no grounding data, render plain markdown
-  if (groundingSupports.length === 0 || groundingChunks.length === 0) {
+  const handleCitationClick = (index: number) => {
+    if (index >= 0 && index < groundingChunks.length) {
+      setSelectedChunk(groundingChunks[index]);
+      setSelectedIndex(index);
+      setIsDialogOpen(true);
+    }
+  };
+
+  // If no grounding chunks, render plain markdown
+  if (groundingChunks.length === 0) {
     return (
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
@@ -433,21 +305,27 @@ export function CitedText({
     );
   }
 
-  // Context value for citation data
+  // Context value for citation handling
   const contextValue: CitationContextValue = {
-    citationRanges,
     chunks: groundingChunks,
-    getTextPosition,
-    advancePosition,
-    hoveredSegment,
-    setHoveredSegment,
+    onCitationClick: handleCitationClick,
   };
 
   return (
-    <CitationContext.Provider value={contextValue}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
-      </ReactMarkdown>
-    </CitationContext.Provider>
+    <>
+      <CitationContext.Provider value={contextValue}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+          {content}
+        </ReactMarkdown>
+      </CitationContext.Provider>
+
+      {/* Source Detail Dialog */}
+      <SourceDetailDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        chunk={selectedChunk}
+        sourceIndex={selectedIndex}
+      />
+    </>
   );
 }

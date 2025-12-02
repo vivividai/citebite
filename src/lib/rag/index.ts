@@ -8,9 +8,9 @@
 import { hybridSearch, SearchResult } from './search';
 import { getGeminiClient, withGeminiErrorHandling } from '@/lib/gemini/client';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
-import { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { GeminiModel } from '@/lib/validations/conversations';
 
 // API Trace logging for debugging
 const TRACE_DIR = join(process.cwd(), 'docs', 'info');
@@ -126,7 +126,8 @@ export async function queryRAG(
   collectionId: string,
   query: string,
   conversationHistory: ConversationMessage[] = [],
-  enableTrace: boolean = false
+  enableTrace: boolean = false,
+  model: GeminiModel = 'gemini-2.5-flash-preview-05-20'
 ): Promise<RAGResponse> {
   // Start API trace if enabled
   if (enableTrace) {
@@ -182,23 +183,8 @@ export async function queryRAG(
 
   console.log(`[RAG] Found ${chunks.length} relevant chunks`);
 
-  // 2. Fetch paper metadata for context enrichment
-  const paperIds = Array.from(new Set(chunks.map(c => c.paperId)));
-  const paperMetadata = await fetchPaperMetadata(paperIds);
-
-  if (enableTrace) {
-    const metadataObj: Record<string, unknown> = {};
-    paperMetadata.forEach((v, k) => {
-      metadataObj[k] = v;
-    });
-    appendTrace('3. Paper Metadata', {
-      paperIds,
-      metadata: metadataObj,
-    });
-  }
-
-  // 3. Build context from chunks
-  const context = buildContext(chunks, paperMetadata);
+  // 2. Build context from chunks (paper metadata not included, frontend looks it up via paper_id)
+  const context = buildContext(chunks);
 
   if (enableTrace) {
     appendTrace('4. Built Context for LLM', {
@@ -212,7 +198,8 @@ export async function queryRAG(
     query,
     context,
     conversationHistory,
-    enableTrace
+    enableTrace,
+    model
   );
 
   if (enableTrace) {
@@ -223,7 +210,10 @@ export async function queryRAG(
   }
 
   // 5. Parse citations and map to chunks
-  const { answer, citedIndices } = parseCitations(rawAnswer, chunks.length);
+  const { answer: parsedAnswer, citedIndices } = parseCitations(
+    rawAnswer,
+    chunks.length
+  );
 
   if (enableTrace) {
     appendTrace('7. Parsed Citations', {
@@ -237,11 +227,15 @@ export async function queryRAG(
   }
 
   // 6. Build grounding data for frontend
-  // Create a map from original chunk index to groundingChunks array index
+  // Create a map from original chunk index (0-based) to groundingChunks array index
   const indexMap = new Map<number, number>();
   citedIndices.forEach((originalIdx, groundingIdx) => {
     indexMap.set(originalIdx, groundingIdx);
   });
+
+  // 7. Renumber citations in the answer to match groundingChunks indices
+  // [CITE:6] → [CITE:1] if original index 5 maps to groundingChunks[0]
+  const answer = renumberCitations(parsedAnswer, indexMap);
 
   const groundingChunks: GroundingChunk[] = citedIndices.map(idx => ({
     retrievedContext: {
@@ -251,12 +245,8 @@ export async function queryRAG(
     },
   }));
 
-  // Build grounding supports (map text segments to chunk indices)
-  const groundingSupports = buildGroundingSupports(
-    answer,
-    citedIndices,
-    indexMap
-  );
+  // Build grounding supports (map text segments to NEW chunk indices)
+  const groundingSupports = buildGroundingSupports(answer);
 
   console.log(`[RAG] Generated answer with ${citedIndices.length} citations`);
 
@@ -281,51 +271,6 @@ export async function queryRAG(
     groundingChunks,
     groundingSupports,
   };
-}
-
-/**
- * Fetch paper metadata for context enrichment
- */
-async function fetchPaperMetadata(
-  paperIds: string[]
-): Promise<
-  Map<string, { title: string; year: number | null; authors: string }>
-> {
-  const supabase = createAdminSupabaseClient();
-  const metadata = new Map<
-    string,
-    { title: string; year: number | null; authors: string }
-  >();
-
-  if (paperIds.length === 0) return metadata;
-
-  const { data, error } = await supabase
-    .from('papers')
-    .select('paper_id, title, year, authors')
-    .in('paper_id', paperIds);
-
-  if (error) {
-    console.error('[RAG] Failed to fetch paper metadata:', error);
-    return metadata;
-  }
-
-  for (const paper of data || []) {
-    const authorList = paper.authors as { name: string }[] | null;
-    const authorsStr = authorList
-      ? authorList
-          .map(a => a.name)
-          .slice(0, 3)
-          .join(', ') + (authorList.length > 3 ? ' et al.' : '')
-      : 'Unknown authors';
-
-    metadata.set(paper.paper_id, {
-      title: paper.title,
-      year: paper.year,
-      authors: authorsStr,
-    });
-  }
-
-  return metadata;
 }
 
 /**
@@ -361,28 +306,19 @@ function removeReferences(content: string): string {
 
 /**
  * Build context string from search results
+ *
+ * Note: Paper metadata (title, authors, year) is NOT included in context.
+ * Frontend can look up paper details via paper_id in groundingChunks.
+ * This reduces token usage significantly.
  */
-function buildContext(
-  chunks: SearchResult[],
-  paperMetadata: Map<
-    string,
-    { title: string; year: number | null; authors: string }
-  >
-): string {
+function buildContext(chunks: SearchResult[]): string {
   return chunks
     .map((chunk, idx) => {
-      const paper = paperMetadata.get(chunk.paperId);
-      const paperInfo = paper
-        ? `"${paper.title}" (${paper.authors}, ${paper.year || 'n.d.'})`
-        : `Paper ID: ${chunk.paperId}`;
-
       // Remove paper reference markers to avoid citation confusion
       const cleanedContent = removeReferences(chunk.content);
 
-      return `[${idx + 1}] Source: ${paperInfo}
----
-${cleanedContent}
----`;
+      return `[${idx + 1}]
+${cleanedContent}`;
     })
     .join('\n\n');
 }
@@ -414,7 +350,8 @@ async function generateResponse(
   query: string,
   context: string,
   conversationHistory: ConversationMessage[],
-  enableTrace: boolean = false
+  enableTrace: boolean = false,
+  model: GeminiModel = 'gemini-2.5-flash-preview-05-20'
 ): Promise<string> {
   return withGeminiErrorHandling(async () => {
     const client = getGeminiClient();
@@ -436,12 +373,12 @@ async function generateResponse(
     ];
 
     const requestConfig = {
-      model: 'gemini-3-pro-preview',
+      model,
       contents,
       config: {
         systemInstruction: CUSTOM_RAG_SYSTEM_PROMPT,
         temperature: 0.2, // Low temperature for consistent, factual responses
-        maxOutputTokens: 4096,
+        maxOutputTokens: 16384,
       },
     };
 
@@ -507,41 +444,68 @@ function parseCitations(
 }
 
 /**
+ * Renumber citations in the answer to match groundingChunks indices
+ *
+ * After filtering to only cited chunks, we need to renumber the citations
+ * in the answer so that [CITE:N] correctly refers to groundingChunks[N-1].
+ *
+ * Example:
+ * - Original answer has [CITE:6], [CITE:15], [CITE:18]
+ * - citedIndices = [5, 14, 17] (0-based original indices)
+ * - groundingChunks[0] = chunk 5, groundingChunks[1] = chunk 14, etc.
+ * - indexMap: 5→0, 14→1, 17→2
+ * - Renumbered answer: [CITE:1], [CITE:2], [CITE:3]
+ *
+ * @param answer - The answer text with original [CITE:N] markers
+ * @param indexMap - Map from original chunk index (0-based) to groundingChunks index
+ * @returns Answer with renumbered citations
+ */
+function renumberCitations(
+  answer: string,
+  indexMap: Map<number, number>
+): string {
+  return answer.replace(/\[CITE:(\d+)\]/g, (match, num) => {
+    const originalIdx = parseInt(num, 10) - 1; // 1-indexed to 0-indexed
+    const newIdx = indexMap.get(originalIdx);
+
+    if (newIdx !== undefined) {
+      // Convert back to 1-indexed for display
+      return `[CITE:${newIdx + 1}]`;
+    }
+
+    // Keep original if not found (shouldn't happen with valid data)
+    return match;
+  });
+}
+
+/**
  * Build grounding supports (text segment → chunk mapping)
  *
  * Creates a simplified mapping where each [CITE:N] marker
  * is linked to its corresponding chunk index in the groundingChunks array.
  *
- * @param answer - The generated answer text containing [CITE:N] markers
- * @param citedIndices - Array of original chunk indices that were cited
- * @param indexMap - Map from original chunk index to groundingChunks array index
+ * NOTE: This function expects the answer to have ALREADY been renumbered
+ * by renumberCitations(), so [CITE:N] directly maps to groundingChunks[N-1].
+ *
+ * @param answer - The generated answer text with RENUMBERED [CITE:N] markers
  */
-function buildGroundingSupports(
-  answer: string,
-  citedIndices: number[],
-  indexMap: Map<number, number>
-): GroundingSupport[] {
+function buildGroundingSupports(answer: string): GroundingSupport[] {
   const supports: GroundingSupport[] = [];
   const citeRegex = /\[CITE:(\d+)\]/g;
 
   let match;
   while ((match = citeRegex.exec(answer)) !== null) {
-    // Convert 1-indexed citation to 0-indexed chunk index
-    const originalIdx = parseInt(match[1], 10) - 1;
+    // After renumbering, [CITE:N] directly refers to groundingChunks[N-1]
+    const groundingIdx = parseInt(match[1], 10) - 1; // 1-indexed to 0-indexed
 
-    // Get the corresponding index in groundingChunks array
-    const groundingIdx = indexMap.get(originalIdx);
-
-    if (groundingIdx !== undefined) {
-      supports.push({
-        segment: {
-          startIndex: match.index,
-          endIndex: match.index + match[0].length,
-          text: match[0],
-        },
-        groundingChunkIndices: [groundingIdx],
-      });
-    }
+    supports.push({
+      segment: {
+        startIndex: match.index,
+        endIndex: match.index + match[0].length,
+        text: match[0],
+      },
+      groundingChunkIndices: [groundingIdx],
+    });
   }
 
   return supports;

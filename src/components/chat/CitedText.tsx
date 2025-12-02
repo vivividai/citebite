@@ -40,10 +40,11 @@ function parseTextWithCitations(
       });
     }
 
-    // Parse citation indices (0-based from LLM, matching aggregated chunk indices)
+    // Parse citation indices - convert 1-indexed [CITE:N] to 0-indexed array access
+    // [CITE:1] → index 0, [CITE:2] → index 1, etc.
     const indices = match[1]
       .split(',')
-      .map(n => parseInt(n.trim(), 10))
+      .map(n => parseInt(n.trim(), 10) - 1) // Convert to 0-indexed
       .filter(n => !isNaN(n) && n >= 0);
 
     if (indices.length > 0) {

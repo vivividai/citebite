@@ -10,7 +10,8 @@
     "prepare": "husky",
     "workers": "tsx scripts/dev/start-workers.ts",
     "queues:check": "tsx scripts/ops/check-queues.ts",
-    "queues:clear": "tsx scripts/ops/clear-queues.ts"
+    "queues:clear": "tsx scripts/ops/clear-queues.ts",
+    "eval:qasper": "tsx scripts/eval/qasper/index.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.1",

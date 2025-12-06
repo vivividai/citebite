@@ -46,3 +46,8 @@ next-env.d.ts
 
 # google example (reference project)
 /google-example/
+
+# QASPER evaluation
+data/
+eval-results/*.json
+eval-results/*-checkpoint.json

@@ -115,6 +115,13 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     };
   }, [graphData]);
 
+  // Disable center force to prevent nodes from being pulled to center
+  useEffect(() => {
+    if (graphRef.current) {
+      graphRef.current.d3Force('center', null);
+    }
+  }, [graphData]);
+
   // Position nodes radially - search nodes in center, expanded nodes outside
   const positionedData = useMemo(() => {
     if (!graphData) return { nodes: [], links: [] };
@@ -148,18 +155,31 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       nodesBySource.get(sourceId)!.push(node);
     });
 
-    // Position expanded nodes around their source
+    // Position expanded nodes around their source, facing OUTWARD from center
     nodesBySource.forEach((sourceNodes, sourceId) => {
       const sourceNode = nodes.find(n => n.id === sourceId);
       const sourceX = sourceNode?.fx ?? sourceNode?.x ?? 0;
       const sourceY = sourceNode?.fy ?? sourceNode?.y ?? 0;
 
+      // Calculate base angle: direction from center (0,0) to source node
+      // This ensures expanded nodes face outward, away from the center
+      const baseAngle = Math.atan2(sourceY, sourceX);
+
+      // Spread angle: how much to spread nodes around the base direction
+      const spreadAngle = Math.PI / 3; // 60 degrees total spread (±30 degrees)
+
       const outerRadius = 150 + Math.random() * 50;
       sourceNodes.forEach((node, i) => {
-        const angle =
-          (2 * Math.PI * i) / sourceNodes.length + Math.random() * 0.3;
-        node.x = sourceX + Math.cos(angle) * outerRadius;
-        node.y = sourceY + Math.sin(angle) * outerRadius;
+        // Distribute nodes within the spread angle, centered on baseAngle
+        const spreadOffset =
+          sourceNodes.length === 1
+            ? 0
+            : (i / (sourceNodes.length - 1) - 0.5) * spreadAngle;
+        const angle = baseAngle + spreadOffset + (Math.random() * 0.2 - 0.1);
+
+        // Fix positions so nodes don't get pulled to center
+        node.fx = sourceX + Math.cos(angle) * outerRadius;
+        node.fy = sourceY + Math.sin(angle) * outerRadius;
       });
     });
 

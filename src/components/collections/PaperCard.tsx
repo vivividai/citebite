@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Paper } from '@/hooks/useCollectionPapers';
+import { useRemovePaper } from '@/hooks/useRemovePaper';
 import {
   Card,
   CardContent,
@@ -11,6 +12,18 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {
   Quote,
   CheckCircle,
@@ -19,6 +32,7 @@ import {
   FileText,
   BookOpen,
   Download,
+  Trash2,
 } from 'lucide-react';
 import { PaperAbstractModal } from './PaperAbstractModal';
 import { PdfUploadButton } from '@/components/papers/PdfUploadButton';
@@ -26,6 +40,9 @@ import { PdfUploadButton } from '@/components/papers/PdfUploadButton';
 interface PaperCardProps {
   paper: Paper;
   collectionId?: string;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: (paperId: string) => void;
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -64,17 +81,59 @@ function StatusBadge({ status }: { status: string | null }) {
   );
 }
 
-export function PaperCard({ paper, collectionId }: PaperCardProps) {
+export function PaperCard({
+  paper,
+  collectionId,
+  selectionMode = false,
+  isSelected = false,
+  onSelect,
+}: PaperCardProps) {
   const [abstractModalOpen, setAbstractModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const removePaper = useRemovePaper();
+
   const authorNames =
     paper.authors?.map(a => a.name).join(', ') || 'Unknown authors';
   const isOpenAccess = !!paper.open_access_pdf_url;
 
+  const handleRemove = () => {
+    if (!collectionId) return;
+
+    removePaper.mutate(
+      { collectionId, paperId: paper.paper_id },
+      {
+        onSuccess: () => {
+          setDeleteDialogOpen(false);
+        },
+      }
+    );
+  };
+
+  const handleCardClick = () => {
+    if (selectionMode && onSelect) {
+      onSelect(paper.paper_id);
+    }
+  };
+
   return (
     <>
-      <Card className="hover:shadow-md transition-shadow">
+      <Card
+        className={`hover:shadow-md transition-shadow ${
+          selectionMode ? 'cursor-pointer' : ''
+        } ${isSelected ? 'ring-2 ring-primary' : ''}`}
+        onClick={selectionMode ? handleCardClick : undefined}
+      >
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
+            {selectionMode && (
+              <div className="flex-shrink-0 pt-1">
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => onSelect?.(paper.paper_id)}
+                  onClick={e => e.stopPropagation()}
+                />
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <CardTitle className="line-clamp-2 text-lg">
                 {paper.title}
@@ -110,14 +169,22 @@ export function PaperCard({ paper, collectionId }: PaperCardProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setAbstractModalOpen(true)}
+              onClick={e => {
+                e.stopPropagation();
+                setAbstractModalOpen(true);
+              }}
               className="flex items-center gap-2"
             >
               <BookOpen className="h-4 w-4" />
               View Abstract
             </Button>
             {isOpenAccess && (
-              <Button variant="outline" size="sm" asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                onClick={e => e.stopPropagation()}
+              >
                 <a
                   href={paper.open_access_pdf_url!}
                   target="_blank"
@@ -129,12 +196,68 @@ export function PaperCard({ paper, collectionId }: PaperCardProps) {
                 </a>
               </Button>
             )}
-            {/* Show Upload PDF button for failed papers (non-Open Access that couldn't be auto-downloaded) */}
+            {/* Show Upload PDF button for failed papers */}
             {paper.vector_status === 'failed' && collectionId && (
-              <PdfUploadButton
-                paperId={paper.paper_id}
-                collectionId={collectionId}
-              />
+              <div onClick={e => e.stopPropagation()}>
+                <PdfUploadButton
+                  paperId={paper.paper_id}
+                  collectionId={collectionId}
+                />
+              </div>
+            )}
+
+            {/* Remove Button - only show when not in selection mode */}
+            {!selectionMode && collectionId && (
+              <AlertDialog
+                open={deleteDialogOpen}
+                onOpenChange={setDeleteDialogOpen}
+              >
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent onClick={e => e.stopPropagation()}>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Remove paper?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2">
+                        <p>
+                          This will remove &quot;{paper.title}&quot; from this
+                          collection.
+                        </p>
+                        <p className="text-sm">
+                          The following will be deleted:
+                        </p>
+                        <ul className="list-disc list-inside text-sm space-y-1">
+                          <li>Vector embeddings (search index)</li>
+                          <li>PDF file from storage</li>
+                        </ul>
+                        <p className="text-sm text-muted-foreground">
+                          This action cannot be undone.
+                        </p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={removePaper.isPending}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleRemove}
+                      disabled={removePaper.isPending}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {removePaper.isPending ? 'Removing...' : 'Remove'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
         </CardContent>

@@ -2,9 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import { useCollectionPapers, Paper } from '@/hooks/useCollectionPapers';
+import { useBatchRemovePapers } from '@/hooks/useBatchRemovePapers';
 import { PaperCard } from './PaperCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -13,11 +15,24 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Loader2,
   FileText,
   AlertCircle,
   ArrowUpDown,
   Upload,
+  Pencil,
+  X,
+  Trash2,
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
 
@@ -30,10 +45,19 @@ type SortType = 'citations' | 'year' | 'relevance';
 
 export function PaperList({ collectionId }: PaperListProps) {
   const { data: papers, isLoading, error } = useCollectionPapers(collectionId);
+  const batchRemove = useBatchRemovePapers();
+
   const [filter, setFilter] = useState<FilterType>('all');
   const [sortBy, setSortBy] = useState<SortType>('citations');
   const [yearFrom, setYearFrom] = useState<string>('');
   const [yearTo, setYearTo] = useState<string>('');
+
+  // Selection mode state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
 
   // All hooks must be called before any conditional returns
   // Filter and sort papers
@@ -87,6 +111,66 @@ export function PaperList({ collectionId }: PaperListProps) {
       ).length,
     };
   }, [papers]);
+
+  // Selection handlers
+  const handleToggleSelectionMode = () => {
+    if (selectionMode) {
+      // Exiting selection mode - clear selections
+      setSelectedPaperIds(new Set());
+    }
+    setSelectionMode(!selectionMode);
+  };
+
+  const handleSelectPaper = (paperId: string) => {
+    setSelectedPaperIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(paperId)) {
+        newSet.delete(paperId);
+      } else {
+        newSet.add(paperId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const allVisibleIds = filteredAndSortedPapers.map(p => p.paper_id);
+    const allSelected = allVisibleIds.every(id => selectedPaperIds.has(id));
+
+    if (allSelected) {
+      // Deselect all visible papers
+      setSelectedPaperIds(prev => {
+        const newSet = new Set(prev);
+        allVisibleIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    } else {
+      // Select all visible papers
+      setSelectedPaperIds(prev => {
+        const newSet = new Set(prev);
+        allVisibleIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    }
+  };
+
+  const handleBatchDelete = () => {
+    const paperIds = Array.from(selectedPaperIds);
+    batchRemove.mutate(
+      { collectionId, paperIds },
+      {
+        onSuccess: () => {
+          setBatchDeleteDialogOpen(false);
+          setSelectedPaperIds(new Set());
+          setSelectionMode(false);
+        },
+      }
+    );
+  };
+
+  const allVisibleSelected =
+    filteredAndSortedPapers.length > 0 &&
+    filteredAndSortedPapers.every(p => selectedPaperIds.has(p.paper_id));
 
   // Now conditional returns are safe
   if (isLoading) {
@@ -177,7 +261,59 @@ export function PaperList({ collectionId }: PaperListProps) {
               }
             />
           )}
+
+          {/* Edit/Selection Mode Toggle */}
+          <Button
+            variant={selectionMode ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={handleToggleSelectionMode}
+            className="ml-auto"
+          >
+            {selectionMode ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
+              </>
+            )}
+          </Button>
         </div>
+
+        {/* Selection Mode Controls */}
+        {selectionMode && (
+          <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={allVisibleSelected}
+                onCheckedChange={handleSelectAll}
+                id="select-all"
+              />
+              <label
+                htmlFor="select-all"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Select all
+              </label>
+            </div>
+            <span className="text-sm text-muted-foreground">
+              {selectedPaperIds.size} selected
+            </span>
+            {selectedPaperIds.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBatchDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Remove Selected
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Year Range and Sort Controls */}
         <div className="flex flex-wrap items-center gap-4">
@@ -243,10 +379,58 @@ export function PaperList({ collectionId }: PaperListProps) {
               key={paper.paper_id}
               paper={paper}
               collectionId={collectionId}
+              selectionMode={selectionMode}
+              isSelected={selectedPaperIds.has(paper.paper_id)}
+              onSelect={handleSelectPaper}
             />
           ))}
         </div>
       )}
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog
+        open={batchDeleteDialogOpen}
+        onOpenChange={setBatchDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {selectedPaperIds.size} papers?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  This will remove the selected papers from this collection.
+                </p>
+                <p className="text-sm">
+                  For each paper, the following will be deleted:
+                </p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li>Vector embeddings (search index)</li>
+                  <li>PDF file from storage</li>
+                </ul>
+                <p className="text-sm text-muted-foreground">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchRemove.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchDelete}
+              disabled={batchRemove.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {batchRemove.isPending
+                ? 'Removing...'
+                : `Remove ${selectedPaperIds.size} papers`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

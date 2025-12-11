@@ -75,22 +75,45 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
-  // Update dimensions on resize
+  // Update dimensions on resize using ResizeObserver for accurate sizing
   useEffect(() => {
+    if (!containerRef.current) return;
+
     const updateDimensions = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        setDimensions({
-          width: rect.width,
-          height: Math.max(500, rect.height),
+        // Only update if dimensions actually changed to avoid infinite loops
+        setDimensions(prev => {
+          if (
+            prev.width !== rect.width ||
+            prev.height !== Math.max(500, rect.height)
+          ) {
+            return {
+              width: rect.width,
+              height: Math.max(500, rect.height),
+            };
+          }
+          return prev;
         });
       }
     };
 
+    // Use ResizeObserver for accurate container size tracking
+    const resizeObserver = new ResizeObserver(() => {
+      updateDimensions();
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    // Initial update and delayed update to catch dynamic import timing
     updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, []);
+    const timeoutId = setTimeout(updateDimensions, 100);
+
+    return () => {
+      resizeObserver.disconnect();
+      clearTimeout(timeoutId);
+    };
+  }, [graphData]);
 
   // Position nodes radially - search nodes in center, expanded nodes outside
   const positionedData = useMemo(() => {
@@ -304,7 +327,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const expandPaper = graphData.nodes.find(n => n.id === expandPaperId);
 
   return (
-    <Card className="relative">
+    <Card className="relative overflow-hidden">
       {/* Legend */}
       <div className="absolute top-4 left-4 z-10 bg-background/90 backdrop-blur-sm rounded-lg p-3 border shadow-sm">
         <h4 className="text-xs font-medium mb-2">Legend</h4>

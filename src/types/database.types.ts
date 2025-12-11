@@ -85,14 +85,23 @@ export type Database = {
         Row: {
           collection_id: string;
           paper_id: string;
+          relationship_type: string | null;
+          similarity_score: number | null;
+          source_paper_id: string | null;
         };
         Insert: {
           collection_id: string;
           paper_id: string;
+          relationship_type?: string | null;
+          similarity_score?: number | null;
+          source_paper_id?: string | null;
         };
         Update: {
           collection_id?: string;
           paper_id?: string;
+          relationship_type?: string | null;
+          similarity_score?: number | null;
+          source_paper_id?: string | null;
         };
         Relationships: [
           {
@@ -109,6 +118,13 @@ export type Database = {
             referencedRelation: 'papers';
             referencedColumns: ['paper_id'];
           },
+          {
+            foreignKeyName: 'collection_papers_source_paper_id_fkey';
+            columns: ['source_paper_id'];
+            isOneToOne: false;
+            referencedRelation: 'papers';
+            referencedColumns: ['paper_id'];
+          },
         ];
       };
       collections: {
@@ -118,7 +134,6 @@ export type Database = {
           created_at: string | null;
           filters: Json | null;
           id: string;
-          insight_summary: Json | null;
           is_public: boolean | null;
           last_updated_at: string | null;
           name: string;
@@ -134,7 +149,6 @@ export type Database = {
           created_at?: string | null;
           filters?: Json | null;
           id?: string;
-          insight_summary?: Json | null;
           is_public?: boolean | null;
           last_updated_at?: string | null;
           name: string;
@@ -150,7 +164,6 @@ export type Database = {
           created_at?: string | null;
           filters?: Json | null;
           id?: string;
-          insight_summary?: Json | null;
           is_public?: boolean | null;
           last_updated_at?: string | null;
           name?: string;

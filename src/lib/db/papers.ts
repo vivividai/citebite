@@ -94,12 +94,13 @@ export async function getCollectionPapers(
   supabase: SupabaseClient<Database>,
   collectionId: string
 ) {
+  // Use FK hint to resolve ambiguity with source_paper_id relationship
   const { data, error } = await supabase
     .from('collection_papers')
     .select(
       `
       paper_id,
-      papers (
+      papers!collection_papers_paper_id_fkey (
         paper_id,
         title,
         authors,

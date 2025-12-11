@@ -47,11 +47,12 @@ export async function GET(
     }
 
     // Get paper processing status with vector_status
+    // Use FK hint to resolve ambiguity with source_paper_id relationship
     const { data: collectionPapers, error: papersError } = await supabase
       .from('collection_papers')
       .select(
         `
-        paper:papers(
+        paper:papers!collection_papers_paper_id_fkey(
           paper_id,
           vector_status
         )

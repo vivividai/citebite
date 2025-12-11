@@ -5,7 +5,8 @@ import { CollectionHeader } from '@/components/collections/CollectionHeader';
 import { PaperList } from '@/components/collections/PaperList';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, AlertCircle, MessageSquare } from 'lucide-react';
+import { PaperGraph } from '@/components/graph/PaperGraph';
+import { Loader2, AlertCircle, MessageSquare, Network } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 export default function CollectionDetailPage() {
@@ -80,6 +81,10 @@ export default function CollectionDetailPage() {
           <TabsTrigger value="papers" className="gap-2">
             Papers
           </TabsTrigger>
+          <TabsTrigger value="graph" className="gap-2">
+            <Network className="h-4 w-4" />
+            Graph
+          </TabsTrigger>
           <TabsTrigger value="chat" className="gap-2">
             <MessageSquare className="h-4 w-4" />
             Chat
@@ -88,6 +93,10 @@ export default function CollectionDetailPage() {
 
         <TabsContent value="papers" className="space-y-4">
           <PaperList collectionId={collection.id} />
+        </TabsContent>
+
+        <TabsContent value="graph" className="space-y-4">
+          <PaperGraph collectionId={collection.id} />
         </TabsContent>
 
         <TabsContent value="chat" className="space-y-4">

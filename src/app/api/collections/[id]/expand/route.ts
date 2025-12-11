@@ -48,7 +48,8 @@ export async function POST(
       );
     }
 
-    const { selectedPaperIds } = result.data;
+    const { selectedPaperIds, sourcePaperId, sourceTypes, similarities } =
+      result.data;
 
     // 2. Authenticate user
     const supabase = await createServerSupabaseClient();
@@ -118,8 +119,14 @@ export async function POST(
     const dbPapers = papers.map(semanticScholarPaperToDbPaper);
     const upsertedPaperIds = await upsertPapers(supabase, dbPapers);
 
-    // 7. Link papers to collection
-    await linkPapersToCollection(supabase, params.id, upsertedPaperIds);
+    // 7. Link papers to collection with relationship data
+    const paperLinkData = upsertedPaperIds.map(paperId => ({
+      paperId,
+      sourcePaperId,
+      relationshipType: sourceTypes[paperId] ?? 'reference',
+      similarityScore: similarities?.[paperId] ?? null,
+    }));
+    await linkPapersToCollection(supabase, params.id, paperLinkData);
 
     // 8. Queue PDF download jobs for Open Access papers
     const openAccessPapers = getOpenAccessPapers(papers);

@@ -56,6 +56,9 @@ export function ExpandCollectionDialog({
     papers: Parameters<typeof PaperPreviewDialog>[0]['papers'];
     stats: Parameters<typeof PaperPreviewDialog>[0]['stats'];
     searchQuery: string;
+    // Maps for relationship data to pass to expand API
+    sourceTypes: Record<string, 'reference' | 'citation'>;
+    similarities: Record<string, number>;
   } | null>(null);
 
   const expandPreview = useExpandPreview();
@@ -80,10 +83,24 @@ export function ExpandCollectionDialog({
         rerankingApplied: result.data.stats.rerankingApplied,
       };
 
+      // Build sourceTypes and similarities maps from preview data
+      const sourceTypes: Record<string, 'reference' | 'citation'> = {};
+      const similarities: Record<string, number> = {};
+
+      for (const paper of result.data.papers) {
+        // Default to 'reference' if sourceType is not available (for backward compat)
+        sourceTypes[paper.paperId] = paper.sourceType ?? 'reference';
+        if (paper.similarity !== null) {
+          similarities[paper.paperId] = paper.similarity;
+        }
+      }
+
       setPreviewData({
         papers: result.data.papers,
         stats: transformedStats,
         searchQuery: result.data.sourceQuery,
+        sourceTypes,
+        similarities,
       });
       setPreviewOpen(true);
     } catch {
@@ -92,10 +109,28 @@ export function ExpandCollectionDialog({
   };
 
   const handleConfirm = (selectedPaperIds: string[]) => {
+    if (!previewData) return;
+
+    // Filter sourceTypes and similarities to only include selected papers
+    const filteredSourceTypes: Record<string, 'reference' | 'citation'> = {};
+    const filteredSimilarities: Record<string, number> = {};
+
+    for (const id of selectedPaperIds) {
+      if (previewData.sourceTypes[id]) {
+        filteredSourceTypes[id] = previewData.sourceTypes[id];
+      }
+      if (previewData.similarities[id] !== undefined) {
+        filteredSimilarities[id] = previewData.similarities[id];
+      }
+    }
+
     expandCollection.mutate(
       {
         collectionId,
         selectedPaperIds,
+        sourcePaperId: paperId,
+        sourceTypes: filteredSourceTypes,
+        similarities: filteredSimilarities,
       },
       {
         onSuccess: () => {

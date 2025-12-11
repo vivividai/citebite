@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, TablesInsert } from '@/types/database.types';
 import { deleteCollectionPdfs } from '@/lib/storage/supabaseStorage';
 import { deleteChunksForCollection } from '@/lib/db/chunks';
+import type { RelationshipType } from '@/types/graph';
 
 type CollectionInsert = TablesInsert<'collections'>;
 
@@ -26,16 +27,38 @@ export async function createCollection(
 }
 
 /**
+ * Paper link data for collection_papers junction table
+ */
+export interface PaperLinkData {
+  paperId: string;
+  sourcePaperId?: string | null;
+  relationshipType?: RelationshipType;
+  similarityScore?: number | null;
+}
+
+/**
  * Link papers to a collection via collection_papers junction table
+ * @param supabase Supabase client
+ * @param collectionId Collection ID
+ * @param papers Array of paper IDs or paper link data with relationship info
  */
 export async function linkPapersToCollection(
   supabase: SupabaseClient<Database>,
   collectionId: string,
-  paperIds: string[]
+  papers: string[] | PaperLinkData[]
 ) {
-  const collectionPapers = paperIds.map(paperId => ({
+  // Normalize input: convert string[] to PaperLinkData[]
+  const paperDataArray: PaperLinkData[] =
+    typeof papers[0] === 'string'
+      ? (papers as string[]).map(paperId => ({ paperId }))
+      : (papers as PaperLinkData[]);
+
+  const collectionPapers = paperDataArray.map(paper => ({
     collection_id: collectionId,
-    paper_id: paperId,
+    paper_id: paper.paperId,
+    source_paper_id: paper.sourcePaperId ?? null,
+    relationship_type: paper.relationshipType ?? 'search',
+    similarity_score: paper.similarityScore ?? null,
   }));
 
   const { error } = await supabase

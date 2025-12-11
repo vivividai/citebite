@@ -77,4 +77,6 @@ export interface PaperPreview {
   hasEmbedding: boolean;
   /** Whether paper has Open Access PDF */
   isOpenAccess: boolean;
+  /** How this paper was found (for expand feature) */
+  sourceType?: 'reference' | 'citation';
 }

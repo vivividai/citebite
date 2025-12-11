@@ -75,7 +75,9 @@ export async function POST(
 
     // 5. Fetch references and/or citations from Semantic Scholar
     const client = getSemanticScholarClient();
-    const relatedPapers: Paper[] = [];
+    const relatedPapers: Array<
+      Paper & { sourceType: 'reference' | 'citation' }
+    > = [];
     let referencesCount = 0;
     let citationsCount = 0;
 
@@ -91,7 +93,8 @@ export async function POST(
       // Extract papers from references, filtering out those without valid paperId
       const refPapers = references
         .map((r: Reference) => r.citedPaper)
-        .filter((p: Paper) => p && p.paperId);
+        .filter((p: Paper) => p && p.paperId)
+        .map((p: Paper) => ({ ...p, sourceType: 'reference' as const }));
 
       relatedPapers.push(...refPapers);
       referencesCount = refPapers.length;
@@ -107,7 +110,8 @@ export async function POST(
       // Extract papers from citations, filtering out those without valid paperId
       const citPapers = citations
         .map((c: Citation) => c.citingPaper)
-        .filter((p: Paper) => p && p.paperId);
+        .filter((p: Paper) => p && p.paperId)
+        .map((p: Paper) => ({ ...p, sourceType: 'citation' as const }));
 
       relatedPapers.push(...citPapers);
       citationsCount = citPapers.length;
@@ -219,6 +223,10 @@ export async function POST(
         'similarity' in paper ? ((paper.similarity as number) ?? null) : null,
       hasEmbedding: 'similarity' in paper && paper.similarity !== undefined,
       isOpenAccess: !!paper.openAccessPdf?.url,
+      sourceType:
+        'sourceType' in paper
+          ? (paper.sourceType as 'reference' | 'citation')
+          : undefined,
     }));
 
     // 12. Return preview data

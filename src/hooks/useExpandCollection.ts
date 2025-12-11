@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 export interface ExpandCollectionParams {
   collectionId: string;
   selectedPaperIds: string[];
+  sourcePaperId: string;
+  sourceTypes: Record<string, 'reference' | 'citation'>;
+  similarities?: Record<string, number>;
 }
 
 interface ExpandCollectionResponse {
@@ -26,7 +29,13 @@ export function useExpandCollection() {
     mutationFn: async (
       params: ExpandCollectionParams
     ): Promise<ExpandCollectionResponse> => {
-      const { collectionId, selectedPaperIds } = params;
+      const {
+        collectionId,
+        selectedPaperIds,
+        sourcePaperId,
+        sourceTypes,
+        similarities,
+      } = params;
 
       const res = await fetch(`/api/collections/${collectionId}/expand`, {
         method: 'POST',
@@ -35,6 +44,9 @@ export function useExpandCollection() {
         },
         body: JSON.stringify({
           selectedPaperIds,
+          sourcePaperId,
+          sourceTypes,
+          similarities,
         }),
       });
 
@@ -62,6 +74,10 @@ export function useExpandCollection() {
       // Invalidate collections list for paper counts
       queryClient.invalidateQueries({
         queryKey: ['collections'],
+      });
+      // Invalidate graph data
+      queryClient.invalidateQueries({
+        queryKey: ['collection-graph', collectionId],
       });
 
       toast.success(data.data.message);

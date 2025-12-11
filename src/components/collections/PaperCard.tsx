@@ -33,6 +33,7 @@ import {
   BookOpen,
   Download,
   Trash2,
+  Network,
 } from 'lucide-react';
 import { PaperAbstractModal } from './PaperAbstractModal';
 import { PdfUploadButton } from '@/components/papers/PdfUploadButton';
@@ -43,6 +44,7 @@ interface PaperCardProps {
   selectionMode?: boolean;
   isSelected?: boolean;
   onSelect?: (paperId: string) => void;
+  onExpand?: (paperId: string, paperTitle: string) => void;
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -87,6 +89,7 @@ export function PaperCard({
   selectionMode = false,
   isSelected = false,
   onSelect,
+  onExpand,
 }: PaperCardProps) {
   const [abstractModalOpen, setAbstractModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -204,6 +207,23 @@ export function PaperCard({
                   collectionId={collectionId}
                 />
               </div>
+            )}
+
+            {/* Expand Button - find related papers via references/citations */}
+            {!selectionMode && collectionId && onExpand && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={e => {
+                  e.stopPropagation();
+                  onExpand(paper.paper_id, paper.title);
+                }}
+                className="flex items-center gap-1"
+                title="Find related papers"
+              >
+                <Network className="h-4 w-4" />
+                Expand
+              </Button>
             )}
 
             {/* Remove Button - only show when not in selection mode */}

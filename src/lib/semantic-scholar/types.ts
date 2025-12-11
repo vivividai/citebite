@@ -108,3 +108,60 @@ export interface CacheEntry {
   data: SearchResponse;
   timestamp: number;
 }
+
+/**
+ * Citation context with intent classification
+ */
+export interface CitationContext {
+  context: string;
+  intent: string;
+}
+
+/**
+ * Reference (paper that this paper cites)
+ */
+export interface Reference {
+  contexts?: string[];
+  intents?: string[];
+  contextsWithIntent?: CitationContext[];
+  isInfluential?: boolean;
+  citedPaper: Paper;
+}
+
+/**
+ * Citation (paper that cites this paper)
+ */
+export interface Citation {
+  contexts?: string[];
+  intents?: string[];
+  contextsWithIntent?: CitationContext[];
+  isInfluential?: boolean;
+  citingPaper: Paper;
+}
+
+/**
+ * Response for references endpoint
+ */
+export interface ReferenceBatch {
+  offset: number;
+  next?: number;
+  data: Reference[];
+}
+
+/**
+ * Response for citations endpoint
+ */
+export interface CitationBatch {
+  offset: number;
+  next?: number;
+  data: Citation[];
+}
+
+/**
+ * Options for fetching references/citations
+ */
+export interface RelatedPapersOptions {
+  offset?: number;
+  limit?: number;
+  fields?: string[];
+}

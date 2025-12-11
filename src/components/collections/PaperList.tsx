@@ -35,6 +35,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
+import { ExpandCollectionDialog } from './ExpandCollectionDialog';
 
 interface PaperListProps {
   collectionId: string;
@@ -58,6 +59,11 @@ export function PaperList({ collectionId }: PaperListProps) {
     new Set()
   );
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+
+  // Expand dialog state
+  const [expandDialogOpen, setExpandDialogOpen] = useState(false);
+  const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
+  const [expandPaperTitle, setExpandPaperTitle] = useState<string>('');
 
   // All hooks must be called before any conditional returns
   // Filter and sort papers
@@ -171,6 +177,13 @@ export function PaperList({ collectionId }: PaperListProps) {
   const allVisibleSelected =
     filteredAndSortedPapers.length > 0 &&
     filteredAndSortedPapers.every(p => selectedPaperIds.has(p.paper_id));
+
+  // Handle expand button click
+  const handleExpand = (paperId: string, paperTitle: string) => {
+    setExpandPaperId(paperId);
+    setExpandPaperTitle(paperTitle);
+    setExpandDialogOpen(true);
+  };
 
   // Now conditional returns are safe
   if (isLoading) {
@@ -382,6 +395,7 @@ export function PaperList({ collectionId }: PaperListProps) {
               selectionMode={selectionMode}
               isSelected={selectedPaperIds.has(paper.paper_id)}
               onSelect={handleSelectPaper}
+              onExpand={handleExpand}
             />
           ))}
         </div>
@@ -431,6 +445,17 @@ export function PaperList({ collectionId }: PaperListProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Expand Collection Dialog */}
+      {expandPaperId && (
+        <ExpandCollectionDialog
+          open={expandDialogOpen}
+          onOpenChange={setExpandDialogOpen}
+          collectionId={collectionId}
+          paperId={expandPaperId}
+          paperTitle={expandPaperTitle}
+        />
+      )}
     </div>
   );
 }

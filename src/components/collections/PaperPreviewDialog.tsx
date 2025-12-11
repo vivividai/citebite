@@ -34,6 +34,8 @@ interface PaperPreviewDialogProps {
   isCreating: boolean;
   onConfirm: (selectedPaperIds: string[]) => void;
   onCancel: () => void;
+  /** Custom button text for confirm button (default: "컬렉션 생성 (N개)") */
+  confirmButtonText?: string;
 }
 
 /**
@@ -48,6 +50,7 @@ export function PaperPreviewDialog({
   isCreating,
   onConfirm,
   onCancel,
+  confirmButtonText,
 }: PaperPreviewDialogProps) {
   // Threshold state (0-100)
   const [threshold, setThreshold] = useState(50);
@@ -280,10 +283,10 @@ export function PaperPreviewDialog({
             {isCreating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                생성 중...
+                처리 중...
               </>
             ) : (
-              `컬렉션 생성 (${selectedPaperIds.size}개)`
+              confirmButtonText || `컬렉션 생성 (${selectedPaperIds.size}개)`
             )}
           </Button>
         </DialogFooter>

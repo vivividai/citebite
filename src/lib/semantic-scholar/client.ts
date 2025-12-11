@@ -12,6 +12,11 @@ import type {
   Paper,
   ApiError,
   CacheEntry,
+  ReferenceBatch,
+  CitationBatch,
+  Reference,
+  Citation,
+  RelatedPapersOptions,
 } from './types';
 
 const BASE_URL = 'https://api.semanticscholar.org/graph/v1';
@@ -431,6 +436,178 @@ export class SemanticScholarClient {
     );
 
     return { papers, total };
+  }
+
+  /**
+   * Get references for a paper (papers that this paper cites)
+   * @param paperId Semantic Scholar paper ID
+   * @param options Optional parameters for pagination and fields
+   * @returns Reference batch with pagination info
+   */
+  async getReferences(
+    paperId: string,
+    options?: RelatedPapersOptions
+  ): Promise<ReferenceBatch> {
+    const defaultFields =
+      'paperId,title,abstract,authors,year,citationCount,venue,publicationTypes,openAccessPdf,externalIds';
+    const fields = options?.fields?.join(',') || defaultFields;
+
+    const requestParams: Record<string, string | number> = {
+      fields,
+      limit: options?.limit || 100,
+    };
+
+    if (options?.offset) {
+      requestParams.offset = options.offset;
+    }
+
+    const response = await this.executeWithRetry(async () => {
+      return this.client.get<ReferenceBatch>(`/paper/${paperId}/references`, {
+        params: requestParams,
+      });
+    });
+
+    return response.data;
+  }
+
+  /**
+   * Get all references with pagination
+   * @param paperId Semantic Scholar paper ID
+   * @param options Optional parameters for max references and influential filter
+   * @returns Array of all references
+   */
+  async getAllReferences(
+    paperId: string,
+    options?: { maxReferences?: number; influentialOnly?: boolean }
+  ): Promise<Reference[]> {
+    const allReferences: Reference[] = [];
+    const maxRefs = options?.maxReferences || 500;
+    let offset = 0;
+    const limit = 100;
+
+    console.log(
+      `[SemanticScholar] Fetching references for paper ${paperId} (max: ${maxRefs})`
+    );
+
+    while (allReferences.length < maxRefs) {
+      const batch = await this.getReferences(paperId, { offset, limit });
+
+      if (!batch.data || batch.data.length === 0) {
+        break;
+      }
+
+      // Filter by influential if requested
+      const refs = options?.influentialOnly
+        ? batch.data.filter(r => r.isInfluential)
+        : batch.data;
+
+      allReferences.push(...refs);
+
+      // Check if there are more pages
+      if (batch.next === undefined || batch.next === null) {
+        break;
+      }
+
+      offset = batch.next;
+
+      // Rate limiting - add small delay between requests
+      await this.sleep(100);
+    }
+
+    // Trim to maxReferences if needed
+    const result = allReferences.slice(0, maxRefs);
+
+    console.log(
+      `[SemanticScholar] Retrieved ${result.length} references for paper ${paperId}`
+    );
+
+    return result;
+  }
+
+  /**
+   * Get citations for a paper (papers that cite this paper)
+   * @param paperId Semantic Scholar paper ID
+   * @param options Optional parameters for pagination and fields
+   * @returns Citation batch with pagination info
+   */
+  async getCitations(
+    paperId: string,
+    options?: RelatedPapersOptions
+  ): Promise<CitationBatch> {
+    const defaultFields =
+      'paperId,title,abstract,authors,year,citationCount,venue,publicationTypes,openAccessPdf,externalIds';
+    const fields = options?.fields?.join(',') || defaultFields;
+
+    const requestParams: Record<string, string | number> = {
+      fields,
+      limit: options?.limit || 100,
+    };
+
+    if (options?.offset) {
+      requestParams.offset = options.offset;
+    }
+
+    const response = await this.executeWithRetry(async () => {
+      return this.client.get<CitationBatch>(`/paper/${paperId}/citations`, {
+        params: requestParams,
+      });
+    });
+
+    return response.data;
+  }
+
+  /**
+   * Get all citations with pagination
+   * @param paperId Semantic Scholar paper ID
+   * @param options Optional parameters for max citations and influential filter
+   * @returns Array of all citations
+   */
+  async getAllCitations(
+    paperId: string,
+    options?: { maxCitations?: number; influentialOnly?: boolean }
+  ): Promise<Citation[]> {
+    const allCitations: Citation[] = [];
+    const maxCits = options?.maxCitations || 500;
+    let offset = 0;
+    const limit = 100;
+
+    console.log(
+      `[SemanticScholar] Fetching citations for paper ${paperId} (max: ${maxCits})`
+    );
+
+    while (allCitations.length < maxCits) {
+      const batch = await this.getCitations(paperId, { offset, limit });
+
+      if (!batch.data || batch.data.length === 0) {
+        break;
+      }
+
+      // Filter by influential if requested
+      const cits = options?.influentialOnly
+        ? batch.data.filter(c => c.isInfluential)
+        : batch.data;
+
+      allCitations.push(...cits);
+
+      // Check if there are more pages
+      if (batch.next === undefined || batch.next === null) {
+        break;
+      }
+
+      offset = batch.next;
+
+      // Rate limiting - add small delay between requests
+      await this.sleep(100);
+    }
+
+    // Trim to maxCitations if needed
+    const result = allCitations.slice(0, maxCits);
+
+    console.log(
+      `[SemanticScholar] Retrieved ${result.length} citations for paper ${paperId}`
+    );
+
+    return result;
   }
 }
 

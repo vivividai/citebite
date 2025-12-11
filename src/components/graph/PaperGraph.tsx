@@ -129,10 +129,43 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     const nodes = graphData.nodes.map(node => ({
       ...node,
     })) as PositionedNode[];
-    const searchNodes = nodes.filter(n => n.relationshipType === 'search');
-    const expandedNodes = nodes.filter(n => n.relationshipType !== 'search');
 
-    // Position search nodes in center cluster
+    // Build node lookup map for quick access
+    const nodeMap = new Map<string, PositionedNode>();
+    nodes.forEach(node => nodeMap.set(node.id, node));
+
+    // Calculate depth for each node by following sourcePaperId chain
+    const depthMap = new Map<string, number>();
+    const getDepth = (nodeId: string, visited = new Set<string>()): number => {
+      if (depthMap.has(nodeId)) return depthMap.get(nodeId)!;
+      if (visited.has(nodeId)) return 0; // Prevent cycles
+      visited.add(nodeId);
+
+      const node = nodeMap.get(nodeId);
+      if (!node || node.relationshipType === 'search') {
+        depthMap.set(nodeId, 0);
+        return 0;
+      }
+
+      const sourceId = node.sourcePaperId;
+      if (!sourceId || !nodeMap.has(sourceId)) {
+        depthMap.set(nodeId, 1);
+        return 1;
+      }
+
+      const depth = getDepth(sourceId, visited) + 1;
+      depthMap.set(nodeId, depth);
+      return depth;
+    };
+
+    // Calculate depths for all nodes
+    nodes.forEach(node => getDepth(node.id));
+
+    // Get max depth for radius scaling
+    const maxDepth = Math.max(...Array.from(depthMap.values()), 1);
+
+    // Position search nodes (depth 0) in center cluster
+    const searchNodes = nodes.filter(n => depthMap.get(n.id) === 0);
     const centerRadius = Math.min(100, searchNodes.length * 15);
     searchNodes.forEach((node, i) => {
       if (searchNodes.length === 1) {
@@ -145,43 +178,52 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       }
     });
 
-    // Group expanded nodes by source
-    const nodesBySource = new Map<string, PositionedNode[]>();
-    expandedNodes.forEach(node => {
-      const sourceId = node.sourcePaperId || 'unknown';
-      if (!nodesBySource.has(sourceId)) {
-        nodesBySource.set(sourceId, []);
-      }
-      nodesBySource.get(sourceId)!.push(node);
-    });
+    // Position expanded nodes by depth level (depth 1, then 2, then 3, ...)
+    for (let depth = 1; depth <= maxDepth; depth++) {
+      const nodesAtDepth = nodes.filter(n => depthMap.get(n.id) === depth);
 
-    // Position expanded nodes around their source, facing OUTWARD from center
-    nodesBySource.forEach((sourceNodes, sourceId) => {
-      const sourceNode = nodes.find(n => n.id === sourceId);
-      const sourceX = sourceNode?.fx ?? sourceNode?.x ?? 0;
-      const sourceY = sourceNode?.fy ?? sourceNode?.y ?? 0;
-
-      // Calculate base angle: direction from center (0,0) to source node
-      // This ensures expanded nodes face outward, away from the center
-      const baseAngle = Math.atan2(sourceY, sourceX);
-
-      // Spread angle: how much to spread nodes around the base direction
-      const spreadAngle = Math.PI / 3; // 60 degrees total spread (±30 degrees)
-
-      const outerRadius = 150 + Math.random() * 50;
-      sourceNodes.forEach((node, i) => {
-        // Distribute nodes within the spread angle, centered on baseAngle
-        const spreadOffset =
-          sourceNodes.length === 1
-            ? 0
-            : (i / (sourceNodes.length - 1) - 0.5) * spreadAngle;
-        const angle = baseAngle + spreadOffset + (Math.random() * 0.2 - 0.1);
-
-        // Fix positions so nodes don't get pulled to center
-        node.fx = sourceX + Math.cos(angle) * outerRadius;
-        node.fy = sourceY + Math.sin(angle) * outerRadius;
+      // Group by source
+      const nodesBySource = new Map<string, PositionedNode[]>();
+      nodesAtDepth.forEach(node => {
+        const sourceId = node.sourcePaperId || 'unknown';
+        if (!nodesBySource.has(sourceId)) {
+          nodesBySource.set(sourceId, []);
+        }
+        nodesBySource.get(sourceId)!.push(node);
       });
-    });
+
+      // Position each group around its source, facing outward
+      nodesBySource.forEach((sourceNodes, sourceId) => {
+        const sourceNode = nodeMap.get(sourceId);
+        const sourceX = sourceNode?.fx ?? sourceNode?.x ?? 0;
+        const sourceY = sourceNode?.fy ?? sourceNode?.y ?? 0;
+
+        // Calculate base angle: direction from center (0,0) to source node
+        // This ensures expanded nodes face outward, away from the center
+        const baseAngle = Math.atan2(sourceY, sourceX);
+
+        // Spread angle: narrower for deeper levels to avoid overlap
+        const spreadAngle = Math.PI / (2 + depth); // Gets narrower with depth
+
+        // Radius scales with depth
+        const baseRadius = 120 + depth * 30;
+        const outerRadius = baseRadius + Math.random() * 40;
+
+        sourceNodes.forEach((node, i) => {
+          // Distribute nodes within the spread angle, centered on baseAngle
+          const spreadOffset =
+            sourceNodes.length === 1
+              ? 0
+              : (i / (sourceNodes.length - 1) - 0.5) * spreadAngle;
+          const angle =
+            baseAngle + spreadOffset + (Math.random() * 0.15 - 0.075);
+
+          // Fix positions so nodes don't get pulled to center
+          node.fx = sourceX + Math.cos(angle) * outerRadius;
+          node.fy = sourceY + Math.sin(angle) * outerRadius;
+        });
+      });
+    }
 
     // Convert edges to links format for react-force-graph
     const links = graphData.edges.map(edge => ({

@@ -10,6 +10,8 @@ type PaperInsert = TablesInsert<'papers'>;
 export function semanticScholarPaperToDbPaper(
   paper: SemanticScholarPaper
 ): PaperInsert {
+  const hasOpenAccessPdf = !!paper.openAccessPdf?.url;
+
   return {
     paper_id: paper.paperId,
     title: paper.title,
@@ -21,7 +23,7 @@ export function semanticScholarPaperToDbPaper(
     venue: paper.venue || null,
     open_access_pdf_url: paper.openAccessPdf?.url || null,
     pdf_source: 'auto',
-    vector_status: 'pending',
+    vector_status: hasOpenAccessPdf ? 'pending' : 'failed',
   };
 }
 

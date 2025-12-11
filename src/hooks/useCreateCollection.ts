@@ -23,7 +23,6 @@ interface CreateCollectionResponse {
       name: string;
       searchQuery: string;
       filters: Record<string, unknown> | null;
-      fileSearchStoreId: string | null;
       createdAt: string;
     };
     stats: {

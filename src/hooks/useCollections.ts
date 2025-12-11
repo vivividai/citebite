@@ -11,7 +11,6 @@ export interface Collection {
     openAccessOnly?: boolean;
   } | null;
   created_at: string;
-  file_search_store_id: string | null;
   totalPapers: number;
   indexedPapers: number;
 }

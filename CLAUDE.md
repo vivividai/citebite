@@ -28,11 +28,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Frontend**: Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS, shadcn/ui
 **Backend**: Next.js API Routes, Supabase Auth
 **Database**: Supabase PostgreSQL (Supabase Client + SQL migrations)
-**Vector DB**: Gemini File Search API (managed RAG)
+**Vector DB**: pgvector (custom RAG with Gemini embeddings)
 **Storage**: Supabase Storage (PDF files with CDN)
 **Background Jobs**: BullMQ + Redis
-**AI/ML**: Gemini 2.5 Flash
-**External APIs**: Semantic Scholar, Gemini File Search
+**AI/ML**: Gemini 2.5 Flash, Gemini embedding-001
+**External APIs**: Semantic Scholar
 
 For detailed tech stack and implementation methods, refer to [Technical Documentation](#documentation-structure).
 
@@ -43,7 +43,7 @@ For detailed tech stack and implementation methods, refer to [Technical Document
 Technical documentation is organized by concern for easier navigation:
 
 - **[OVERVIEW.md](./docs/planning/OVERVIEW.md)** - System architecture, data flows, and feature-to-tech-stack mapping
-- **[EXTERNAL_APIS.md](./docs/planning/EXTERNAL_APIS.md)** - Semantic Scholar and Gemini File Search API integration guides with detailed endpoint documentation
+- **[EXTERNAL_APIS.md](./docs/planning/EXTERNAL_APIS.md)** - Semantic Scholar API integration guide with detailed endpoint documentation
 - **[FRONTEND.md](./docs/planning/FRONTEND.md)** - Frontend stack (Next.js, React, UI libraries, state management, component patterns)
 - **[BACKEND.md](./docs/planning/BACKEND.md)** - Backend stack (API routes, authentication, input validation, HTTP clients)
 - **[DATABASE.md](./docs/planning/DATABASE.md)** - Database design (PostgreSQL schema, Supabase CLI, SQL migrations, Supabase Storage, RLS policies)
@@ -172,7 +172,7 @@ citebite/
 │   │   ├── supabase/         # Supabase client (client & server)
 │   │   ├── db/               # Database helpers and types
 │   │   ├── jobs/             # BullMQ job definitions
-│   │   ├── gemini/           # Gemini File Search client
+│   │   ├── gemini/           # Gemini API client (chat, embeddings)
 │   │   ├── semantic-scholar/ # Semantic Scholar API client
 │   │   └── storage/          # Supabase Storage helpers
 │   └── types/                # TypeScript types
@@ -242,7 +242,7 @@ citebite/
 
 **Don't skip citation validation** - LLMs hallucinate; verify cited papers exist in collection
 
-- Extract cited paper IDs from Gemini's grounding metadata
+- Extract cited paper IDs from RAG grounding metadata
 - Verify papers actually exist in the collection
 - Store citation information in database for traceability
 
@@ -341,56 +341,13 @@ The agent will:
 - Test RLS policies with mock user contexts
 - Report any errors or warnings
 
-### 8. Gemini File Search API - Always Use Latest Documentation
-
-**IMPORTANT: API documentation may be outdated** - Always fetch latest docs before implementation
-
-Gemini File Search is a recently added API, and Claude's training data may not include the latest features, parameters, or breaking changes.
-
-**When working with Gemini File Search API, you MUST:**
-
-1. **First fetch the official documentation**: https://ai.google.dev/gemini-api/docs/file-search
-   - Use the WebFetch tool to retrieve the latest API information
-   - This step is mandatory before any implementation or modification
-2. **Compare with EXTERNAL_APIS.md** to identify any discrepancies
-   - Check if endpoints, parameters, or best practices have changed
-   - Note any new features or deprecations
-3. **Use the official documentation as the source of truth**
-   - If there's a conflict between training data and official docs, follow official docs
-   - EXTERNAL_APIS.md serves as a reference, but may be outdated
-4. **Update EXTERNAL_APIS.md if significant changes are found**
-   - Document breaking changes or new features
-   - Update code examples if API signatures have changed
-   - Add the verification date
-
-**Why this matters:**
-
-- API changes can break existing code if not detected
-- New features may provide better solutions than current implementation
-- Rate limits, pricing, and best practices may have changed
-
-**Example workflow:**
-
-```typescript
-// ❌ BAD: Directly implementing without checking docs
-async function uploadToFileSearch(file: Buffer) {
-  // Using potentially outdated API patterns...
-}
-
-// ✅ GOOD: First fetch latest docs, then implement
-// 1. WebFetch https://ai.google.dev/gemini-api/docs/file-search
-// 2. Verify uploadToFileSearchStore method signature
-// 3. Check for new parameters or options
-// 4. Implement using verified API patterns
-```
-
 ---
 
 ## Development Roadmap
 
 The project is divided into 8 phases (10-12 weeks total):
 
-**Phase 1 (2-3 weeks):** Core foundation - Supabase setup (Auth, DB, Storage), Semantic Scholar integration, Gemini File Search setup, PDF download pipeline
+**Phase 1 (2-3 weeks):** Core foundation - Supabase setup (Auth, DB, Storage), Semantic Scholar integration, pgvector RAG setup, PDF download pipeline
 **Phase 2 (2 weeks):** RAG pipeline and chat UI with citations
 **Phase 3 (1 week):** Manual PDF upload for non-Open Access papers
 **Phase 4 (1 week):** Conversation history and persistence
@@ -405,7 +362,7 @@ For detailed implementation checklist with ~110 testable tasks, E2E test checkpo
 
 ## Common Pitfalls to Avoid
 
-1. **Don't embed entire papers** - While Gemini File Search handles chunking automatically, very large PDFs may fail processing (respect 100MB limit)
+1. **Don't embed entire papers** - Use proper chunking strategy (4096 chars max with 600 char overlap), very large PDFs may fail processing (respect 100MB limit)
 2. **Don't forget conversation context** - Include last 5-10 messages in LLM prompt to maintain conversation continuity
 3. **Don't hard-delete conversations or collections** - Implement soft delete with recovery option
 4. **Don't skip deduplication** - Same paper can appear in multiple collections (check duplicates by Semantic Scholar paper ID)
@@ -553,7 +510,7 @@ For detailed setup and RLS policies, see [DATABASE.md](./docs/planning/DATABASE.
 ## Cost Considerations
 
 **Supabase Free Tier**: Database 500MB, Storage 1GB, Auth 50,000 MAU
-**Gemini File Search**: Free tier 1GB vector storage, Indexing $0.15/1M tokens
-**Expected costs** (100 users, 50 papers/collection): ~$0.10 per collection
+**Gemini API**: Embedding $0.00001/1K chars, Flash $0.075/1M input tokens
+**Expected costs** (100 users, 50 papers/collection): ~$0.05 per collection
 
 For detailed cost analysis and growth-stage projections, see [INFRASTRUCTURE.md - Cost Analysis](./docs/planning/INFRASTRUCTURE.md).

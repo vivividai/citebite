@@ -9,7 +9,7 @@
 ## 관련 문서
 
 - **[전체 아키텍처](./OVERVIEW.md)** - 시스템 개요 및 데이터 흐름
-- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API
+- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar API
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증
 - **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase CLI, SQL migrations, Supabase Storage
@@ -118,38 +118,33 @@ pdfDownloadWorker.on('failed', async (job, err) => {
 ```typescript
 // lib/jobs/workers/pdfIndexWorker.ts
 import { Worker } from 'bullmq';
+import { chunkText } from '@/lib/rag/chunker';
+import { generateDocumentEmbeddings } from '@/lib/rag/embeddings';
+import { insertChunks } from '@/lib/db/chunks';
 
 const pdfIndexWorker = new Worker(
-  'pdf-index',
+  'pdf-indexing',
   async job => {
-    const { collectionId, paperId, pdfBuffer } = job.data;
-    const supabase = createServerSupabaseClient();
+    const { collectionId, paperId, storageKey } = job.data;
 
-    const { data: collection } = await supabase
-      .from('collections')
-      .select('file_search_store_id')
-      .eq('id', collectionId)
-      .single();
+    // 1. Supabase Storage에서 PDF 다운로드
+    const pdfBuffer = await downloadPdfFromStorage(storageKey);
 
-    const { data: paper } = await supabase
-      .from('papers')
-      .select('*')
-      .eq('paper_id', paperId)
-      .single();
+    // 2. PDF에서 텍스트 추출
+    const text = await extractTextFromPdf(pdfBuffer);
 
-    // Gemini File Search Store에 업로드
-    await geminiService.uploadToStore(
-      collection.file_search_store_id!,
-      pdfBuffer,
-      {
-        paper_id: paperId,
-        title: paper.title,
-        authors: JSON.stringify(paper.authors),
-        year: String(paper.year),
-      }
+    // 3. 텍스트 청킹 (4096자, 600자 오버랩)
+    const chunks = chunkText(text);
+
+    // 4. Gemini embedding-001로 임베딩 생성
+    const embeddings = await generateDocumentEmbeddings(
+      chunks.map(c => c.content)
     );
 
-    return { success: true };
+    // 5. pgvector에 저장
+    await insertChunks(collectionId, paperId, chunks, embeddings);
+
+    return { success: true, chunkCount: chunks.length };
   },
   {
     connection,
@@ -779,25 +774,25 @@ test('create collection and chat', async ({ page }) => {
 - 대화: 사용자당 월 50회
 - 총 저장 용량: 100 users × 50 papers × 5MB = 25GB
 
-| 항목                        | 사용량                                                     | 단가         | 월 비용     |
-| --------------------------- | ---------------------------------------------------------- | ------------ | ----------- |
-| **Vercel (Frontend + API)** | Hobby plan                                                 | 무료         | $0          |
-| **Supabase**                |                                                            |              |             |
-| - PostgreSQL                | <500MB                                                     | 무료 티어    | $0          |
-| - Storage                   | 25GB (무료 1GB 초과분 24GB)                                | $0.021/GB    | $0.50       |
-| - Auth                      | <50K MAU                                                   | 무료 티어    | $0          |
-| **Railway (Workers)**       | 1 instance                                                 | Starter plan | $5          |
-| **Upstash Redis**           | <10K cmds/day                                              | 무료 티어    | $0          |
-| **Gemini File Search**      |                                                            |              |             |
-| - 인덱싱 (초기)             | 100 users × 2 colls × 50 papers × 10K tokens = 100M tokens | $0.15/1M     | $15         |
-| - 대화 (input)              | 100 users × 50 msgs × 2K tokens = 10M tokens               | $0.075/1M    | $0.75       |
-| - 대화 (output)             | 100 users × 50 msgs × 500 tokens = 2.5M tokens             | $0.30/1M     | $0.75       |
-| **Semantic Scholar API**    | 무료 (API Key 발급)                                        | 무료         | $0          |
-| **합계**                    |                                                            |              | **~$22/월** |
+| 항목                        | 사용량                                                   | 단가         | 월 비용     |
+| --------------------------- | -------------------------------------------------------- | ------------ | ----------- |
+| **Vercel (Frontend + API)** | Hobby plan                                               | 무료         | $0          |
+| **Supabase**                |                                                          |              |             |
+| - PostgreSQL                | <500MB                                                   | 무료 티어    | $0          |
+| - Storage                   | 25GB (무료 1GB 초과분 24GB)                              | $0.021/GB    | $0.50       |
+| - Auth                      | <50K MAU                                                 | 무료 티어    | $0          |
+| **Railway (Workers)**       | 1 instance                                               | Starter plan | $5          |
+| **Upstash Redis**           | <10K cmds/day                                            | 무료 티어    | $0          |
+| **Gemini API**              |                                                          |              |             |
+| - Embedding (초기)          | 100 users × 2 colls × 50 papers × 50K chars = 500M chars | $0.00001/1K  | $5          |
+| - Chat (input)              | 100 users × 50 msgs × 2K tokens = 10M tokens             | $0.075/1M    | $0.75       |
+| - Chat (output)             | 100 users × 50 msgs × 500 tokens = 2.5M tokens           | $0.30/1M     | $0.75       |
+| **Semantic Scholar API**    | 무료 (API Key 발급)                                      | 무료         | $0          |
+| **합계**                    |                                                          |              | **~$12/월** |
 
 **참고**:
 
-- 인덱싱은 초기 비용, 이후는 대화 비용만 발생 → 월 ~$7
+- 임베딩은 초기 비용, 이후는 대화 비용만 발생 → 월 ~$7
 - Supabase 무료 티어만으로 DB + Auth 커버 가능
 - Storage는 Pro 플랜 없이도 사용 가능 (종량제)
 
@@ -820,7 +815,7 @@ test('create collection and chat', async ({ page }) => {
 | - Auth                    | 700 MAU (100K 포함 범위 내)         | 포함                   |
 | **Railway (Workers × 2)** | 2 instances                         | $10                    |
 | **Upstash Redis**         | 1M cmds/day                         | $10                    |
-| **Gemini File Search**    | 1,000 users × 50 msgs × 2.5K tokens | $9.38                  |
+| **Gemini API**            | 1,000 users × 50 msgs × 2.5K tokens | $9.38                  |
 | **합계**                  |                                     | **~$77/월**            |
 
 **참고**:

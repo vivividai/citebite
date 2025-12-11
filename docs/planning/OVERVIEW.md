@@ -8,7 +8,7 @@
 
 ## 관련 문서
 
-- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API 상세
+- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar API 상세
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리, 상태 관리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증, 데이터베이스
 - **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase CLI, SQL migrations, Supabase Storage
@@ -24,7 +24,7 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 
 - **논문 자동 수집**: Semantic Scholar API를 통한 Open Access 논문 검색 및 다운로드
 - **수동 PDF 업로드**: Non-Open Access 논문을 사용자가 직접 업로드
-- **RAG 기반 대화**: Gemini File Search API를 활용한 논문 기반 질의응답
+- **RAG 기반 대화**: pgvector + Gemini를 활용한 논문 기반 질의응답
 - **대화 기록 관리**: 영구적인 대화 기록 저장 및 이어하기
 - **컬렉션 업데이트**: 신규 논문 자동 발견 및 추가
 - **인사이트 생성**: AI 기반 연구 동향 분석
@@ -79,13 +79,20 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
          │                │
          ▼                ▼
 ┌──────────────┐  ┌──────────────┐
-│ Semantic     │  │ Gemini       │
-│ Scholar API  │  │ File Search  │
-│              │  │              │
-│ - 논문 검색  │  │ - PDF 저장   │
-│ - 메타데이터 │  │ - 임베딩     │
-│ - PDF URL    │  │ - RAG 검색   │
+│ Semantic     │  │ Gemini API   │
+│ Scholar API  │  │              │
+│              │  │ - Chat (LLM) │
+│ - 논문 검색  │  │ - Embedding  │
+│ - 메타데이터 │  │              │
+│ - PDF URL    │  │              │
 └──────────────┘  └──────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│              pgvector (PostgreSQL Extension)                │
+│  - 768차원 벡터 저장 (paper_chunks 테이블)                  │
+│  - HNSW 인덱스로 고속 유사도 검색                          │
+│  - 하이브리드 검색 (벡터 70% + 키워드 30%)                 │
+└─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │              Background Jobs (BullMQ + Redis)               │
@@ -108,8 +115,8 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 5. Backend → BullMQ: PDF 다운로드 작업 큐잉
 6. BullMQ Worker:
    - PDF 다운로드 → Supabase Storage 저장
-   - Gemini File Search Store 생성
-   - PDF 업로드 → File Search Store
+   - PDF 텍스트 추출 → 청킹
+   - Gemini embedding 생성 → pgvector 저장
 7. Backend → Gemini: 인사이트 생성 요청
 8. Backend → Supabase PostgreSQL: 인사이트 저장
 9. Frontend ← WebSocket/Polling: 진행 상태 업데이트
@@ -121,13 +128,12 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 1. 사용자: 질문 입력
 2. Frontend → Backend: POST /api/conversations/{id}/messages
 3. Backend → Supabase PostgreSQL: 대화 기록 조회
-4. Backend → Gemini File Search: RAG 쿼리
-5. Gemini:
-   - 질문 임베딩 생성
-   - File Search Store에서 유사 청크 검색
-   - LLM에 컨텍스트 + 질문 전달
-   - 답변 생성
-6. Backend ← Gemini: 답변 + Grounding Metadata
+4. Backend → Custom RAG:
+   - 질문 임베딩 생성 (Gemini embedding-001)
+   - pgvector 하이브리드 검색 (벡터 + 키워드)
+   - 관련 청크로 컨텍스트 구성
+5. Backend → Gemini Chat: 컨텍스트 + 질문으로 답변 생성
+6. Backend: 인용 파싱 및 메타데이터 구성
 7. Backend → Supabase PostgreSQL: 답변 저장
 8. Frontend ← Backend: 답변 + 인용 정보
 ```
@@ -147,7 +153,7 @@ CiteBite는 다음과 같은 핵심 기능을 제공해야 합니다:
 | 메타데이터 저장 | Supabase PostgreSQL + Supabase SDK | 논문 정보, 컬렉션-논문 관계 저장           |
 | PDF 다운로드    | BullMQ + Axios                     | 백그라운드에서 비동기 다운로드             |
 | PDF 저장        | Supabase Storage                   | 원본 PDF 영구 저장 (재처리 가능), CDN 통합 |
-| 벡터화          | Gemini File Search                 | PDF 업로드 → 자동 청킹/임베딩              |
+| 벡터화          | Gemini embedding + pgvector        | PDF 청킹 → 임베딩 생성 → 벡터 저장         |
 | 진행 상태 UI    | WebSocket / Polling                | 실시간 진행률 표시                         |
 
 **구현 상세:**
@@ -206,14 +212,7 @@ async function createCollection(req: Request) {
     }))
   );
 
-  // 4. Gemini File Search Store 생성
-  const store = await geminiService.createFileSearchStore(collection.id);
-  await supabase
-    .from('collections')
-    .update({ file_search_store_id: store.id })
-    .eq('id', collection.id);
-
-  // 5. PDF 다운로드 작업 큐잉
+  // 4. PDF 다운로드 작업 큐잉 (벡터화는 Worker에서 처리)
   const openAccessPapers = papers.filter(p => p.openAccessPdf?.url);
   await pdfDownloadQueue.addBulk(
     openAccessPapers.map(p => ({
@@ -232,14 +231,14 @@ async function createCollection(req: Request) {
 
 #### 수동 PDF 업로드
 
-| 기능 요소      | 기술 스택             | 상세 역할                              |
-| -------------- | --------------------- | -------------------------------------- |
-| 파일 업로드 UI | React Dropzone        | 드래그앤드롭 인터페이스                |
-| 파일 검증      | Backend (Node.js)     | MIME type, 파일 크기 검증 (최대 100MB) |
-| 영구 저장      | Supabase Storage      | PDF 원본 저장 및 CDN 캐싱              |
-| 벡터화         | Gemini File Search    | PDF 업로드 → File Search Store         |
-| 상태 업데이트  | Supabase PostgreSQL   | vectorStatus: 'pending' → 'completed'  |
-| 진행 표시      | React State + Polling | 업로드 → 인덱싱 완료까지 진행률        |
+| 기능 요소      | 기술 스택                   | 상세 역할                              |
+| -------------- | --------------------------- | -------------------------------------- |
+| 파일 업로드 UI | React Dropzone              | 드래그앤드롭 인터페이스                |
+| 파일 검증      | Backend (Node.js)           | MIME type, 파일 크기 검증 (최대 100MB) |
+| 영구 저장      | Supabase Storage            | PDF 원본 저장 및 CDN 캐싱              |
+| 벡터화         | Gemini embedding + pgvector | PDF 청킹 → 임베딩 → 벡터 저장          |
+| 상태 업데이트  | Supabase PostgreSQL         | vectorStatus: 'pending' → 'completed'  |
+| 진행 표시      | React State + Polling       | 업로드 → 인덱싱 완료까지 진행률        |
 
 **구현 상세:**
 
@@ -283,18 +282,12 @@ async function uploadPdf(req: Request) {
 
   if (error) throw error;
 
-  // 4. Gemini File Search 업로드 (모든 컬렉션의 Store에)
-  for (const cp of paper.collection_papers) {
-    await geminiService.uploadToStore(
-      cp.collection.file_search_store_id,
-      file.buffer,
-      {
-        paper_id: paperId,
-        title: paper.title,
-        authors: JSON.stringify(paper.authors),
-      }
-    );
-  }
+  // 4. PDF 인덱싱 작업 큐잉 (텍스트 추출 → 청킹 → 임베딩 → pgvector)
+  await pdfIndexQueue.add('index-pdf', {
+    paperId,
+    collectionId: paper.collection_papers[0].collection_id,
+    storagePath: data.path,
+  });
 
   // 5. 상태 업데이트
   await supabase
@@ -385,14 +378,14 @@ async function addPapersToCollection(req: Request) {
 
 ### 3.3 AI 대화
 
-| 기능 요소      | 기술 스택                 | 상세 역할                           |
-| -------------- | ------------------------- | ----------------------------------- |
-| 대화 UI        | React + Markdown          | 메시지 렌더링, 코드 블록, 인용 표시 |
-| 대화 기록 조회 | PostgreSQL                | 기존 메시지 로드                    |
-| RAG 쿼리       | Gemini File Search        | 시맨틱 검색 + LLM 답변 생성         |
-| 인용 추출      | Gemini Grounding Metadata | 답변에 사용된 논문 청크 식별        |
-| 메시지 저장    | PostgreSQL                | 질문-답변 쌍 저장                   |
-| 제안 질문 생성 | Gemini API                | 다음 질문 3-5개 자동 생성           |
+| 기능 요소      | 기술 스택              | 상세 역할                           |
+| -------------- | ---------------------- | ----------------------------------- |
+| 대화 UI        | React + Markdown       | 메시지 렌더링, 코드 블록, 인용 표시 |
+| 대화 기록 조회 | PostgreSQL             | 기존 메시지 로드                    |
+| RAG 쿼리       | pgvector + Gemini Chat | 하이브리드 검색 + LLM 답변 생성     |
+| 인용 추출      | Custom RAG Grounding   | 답변에 사용된 논문 청크 식별        |
+| 메시지 저장    | PostgreSQL             | 질문-답변 쌍 저장                   |
+| 제안 질문 생성 | Gemini API             | 다음 질문 3-5개 자동 생성           |
 
 **구현 상세:**
 
@@ -423,17 +416,17 @@ async function sendMessage(req: Request) {
     parts: [{ text: m.content }],
   }));
 
-  // 3. Gemini File Search 쿼리
-  const response = await geminiService.queryWithFileSearch({
-    storeId: conversation.collection.fileSearchStoreId,
+  // 3. Custom RAG 쿼리 (pgvector 하이브리드 검색 + Gemini Chat)
+  const response = await queryRAG({
+    collectionId: conversation.collection_id,
     question: content,
     conversationHistory: history,
   });
 
-  // 4. 인용 논문 추출
-  const citedPaperIds = response.groundingChunks.map(
-    chunk => chunk.metadata.paper_id
-  );
+  // 4. 인용 논문 추출 (RAG 응답에서 grounding chunks 추출)
+  const citedPaperIds = response.groundingChunks
+    .map(chunk => chunk.retrievedContext?.paper_id)
+    .filter(Boolean);
   const { data: citedPapers } = await supabase
     .from('papers')
     .select('paper_id, title, authors, year')
@@ -565,13 +558,13 @@ JSON 형식:
 
 ### 3.5 공개 컬렉션
 
-| 기능 요소   | 기술 스택               | 상세 역할                               |
-| ----------- | ----------------------- | --------------------------------------- |
-| 공개 설정   | PostgreSQL              | Collection.isPublic 필드                |
-| 컬렉션 목록 | PostgreSQL + Pagination | 공개 컬렉션 조회                        |
-| 검색/필터   | PostgreSQL Full-Text    | 이름, 설명 검색                         |
-| 통계 표시   | PostgreSQL Aggregation  | 복사 횟수, 논문 수                      |
-| 복사 기능   | PostgreSQL Transaction  | 메타데이터 복사, Gemini Store 참조 공유 |
+| 기능 요소   | 기술 스택               | 상세 역할                         |
+| ----------- | ----------------------- | --------------------------------- |
+| 공개 설정   | PostgreSQL              | Collection.isPublic 필드          |
+| 컬렉션 목록 | PostgreSQL + Pagination | 공개 컬렉션 조회                  |
+| 검색/필터   | PostgreSQL Full-Text    | 이름, 설명 검색                   |
+| 통계 표시   | PostgreSQL Aggregation  | 복사 횟수, 논문 수                |
+| 복사 기능   | PostgreSQL Transaction  | 메타데이터 복사, 벡터 데이터 공유 |
 
 **구현 상세:**
 
@@ -599,8 +592,6 @@ async function copyCollection(req: Request) {
       search_query: original.search_query,
       filters: original.filters,
       is_public: false,
-      // 중요: 동일한 File Search Store 참조
-      file_search_store_id: original.file_search_store_id,
       insight_summary: original.insight_summary,
     })
     .select()
@@ -623,7 +614,7 @@ async function copyCollection(req: Request) {
 }
 ```
 
-**참고**: Gemini File Search Store는 공유 가능하므로, 여러 컬렉션이 동일한 Store를 참조하여 벡터 데이터 중복 방지 및 비용 절감.
+**참고**: paper_chunks 테이블의 벡터 데이터는 paper_id로 참조되므로, 여러 컬렉션이 동일한 논문을 공유할 때 벡터 데이터 중복 방지.
 
 ---
 
@@ -636,7 +627,7 @@ async function copyCollection(req: Request) {
 | **Frontend**        | Next.js 14, React 18, TypeScript, Tailwind, shadcn/ui       | UI, SSR, 타입 안정성         |
 | **Backend**         | Next.js API Routes, Supabase Auth, Zod                      | API, 인증, 검증              |
 | **Database**        | Supabase PostgreSQL, Supabase Client, SQL migrations        | 관계형 데이터 저장, RLS 보안 |
-| **Vector DB**       | Gemini File Search                                          | PDF 벡터화, RAG              |
+| **Vector DB**       | pgvector (Supabase PostgreSQL Extension)                    | PDF 벡터화, RAG              |
 | **File Storage**    | Supabase Storage                                            | PDF 원본 저장, CDN 통합      |
 | **Background Jobs** | BullMQ, Redis                                               | 비동기 작업 처리             |
 | **External APIs**   | Semantic Scholar, Gemini                                    | 논문 검색, LLM               |
@@ -644,8 +635,8 @@ async function copyCollection(req: Request) {
 
 ### 4.2 성공을 위한 핵심 포인트
 
-1. **Supabase 통합 플랫폼**: DB, Auth, Storage를 단일 플랫폼에서 관리하여 인프라 복잡도 감소
-2. **Gemini File Search 활용**: RAG 자체 구축 대비 개발 시간 70% 단축
+1. **Supabase 통합 플랫폼**: DB, Auth, Storage, Vector DB를 단일 플랫폼에서 관리하여 인프라 복잡도 감소
+2. **pgvector + Gemini Embedding**: 커스텀 RAG로 완전한 제어권 확보, 하이브리드 검색으로 정확도 향상
 3. **BullMQ로 비동기 처리**: PDF 다운로드/인덱싱으로 사용자 대기 시간 제거
 4. **Row Level Security**: 데이터베이스 수준 보안으로 안전한 멀티테넌트 구조
 5. **Supabase Client SDK**: TypeScript 타입 자동 생성으로 타입 안정성 확보

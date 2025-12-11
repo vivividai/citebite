@@ -60,13 +60,15 @@
 - [x] Add job status polling API route
 - [ ] **E2E Test**: Queue a test job and verify it appears in Redis (requires actual Redis instance)
 
-### 1.7 Gemini File Search Integration _(→ [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
+### 1.7 Custom RAG with pgvector _(→ [DATABASE](./planning/DATABASE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
 - [x] Initialize Gemini AI client with API key
-- [x] Implement File Search Store creation function
-- [x] Implement PDF upload to Store function
-- [x] Add error handling for rate limits
-- [x] **E2E Test**: Upload a sample PDF and verify Store creation
+- [x] Enable pgvector extension in Supabase
+- [x] Create paper_chunks table with vector(768) column
+- [x] Implement PDF text extraction and chunking (fixed-size)
+- [x] Implement embedding generation (Gemini text-embedding-004)
+- [x] Create HNSW index for fast similarity search
+- [x] **E2E Test**: Index a sample PDF and verify embeddings stored
 
 ### 1.8 Supabase Storage Setup _(→ [DATABASE](./planning/DATABASE.md))_
 
@@ -82,7 +84,7 @@
 - [x] Validate input with Zod schema (keywords, filters)
 - [x] Search papers via Semantic Scholar
 - [x] Save collection and papers to database
-- [x] Create Gemini File Search Store
+- [x] Create collection record in database
 - [x] Queue PDF download jobs for Open Access papers
 - [x] **E2E Test**: Create collection and verify database entries + jobs queued (tested: validation, auth, API integration)
 
@@ -111,7 +113,9 @@
 ### 2.2 PDF Indexing Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
 - [x] Retrieve PDF from Supabase Storage
-- [x] Upload PDF to Gemini File Search Store with metadata
+- [x] Extract text and chunk PDF content (fixed-size chunking)
+- [x] Generate embeddings via Gemini text-embedding-004
+- [x] Store chunks with embeddings in paper_chunks table (pgvector)
 - [x] Update `Paper.vectorStatus` to 'completed'
 - [x] Handle API errors and update status to 'failed'
 - [x] Implement exponential backoff for rate limits
@@ -158,7 +162,7 @@
 - [x] Create POST /api/conversations/[id]/messages route
 - [x] Validate conversation exists and user has access
 - [x] Save user message to database
-- [x] Query Gemini with File Search tool
+- [x] Query custom RAG (pgvector + Gemini)
 - [x] Extract grounding metadata for citations
 - [x] Validate cited papers exist in collection
 - [x] Save AI response and citations to database
@@ -467,7 +471,7 @@
 - [ ] Create POST /api/collections/[id]/copy route
 - [ ] Create new Collection with same metadata
 - [ ] Copy CollectionPaper relations (reference same papers)
-- [ ] Share fileSearchStoreId (no re-indexing)
+- [ ] Copy paper_chunks (share embeddings, no re-indexing)
 - [ ] Copy insightSummary
 - [ ] Increment original Collection.copyCount
 - [ ] **E2E Test**: Copy public collection and verify papers accessible

@@ -25,19 +25,19 @@ Query Transformation은 RAG 검색 품질을 향상시키기 위해 사용자 �
 ┌─────────────────────────────────────────────────────────────────────┐
 │  [Step 2] Parallel RAG Execution (parallel-rag.ts)                  │
 │  ─────────────────────────────────────────────────────────────────  │
-│  • Input: 5 sub-queries + File Search Store ID                     │
-│  • Process: Promise.allSettled() - 5 parallel Gemini calls         │
-│  • Each call uses File Search tool for RAG                         │
+│  • Input: 5 sub-queries + Collection ID                            │
+│  • Process: Promise.allSettled() - 5 parallel RAG calls            │
+│  • Each call uses pgvector + Gemini for RAG                        │
 │  • Output: 5 SubQueryResults (answer + grounding data)             │
 │  • Latency: ~10-30 seconds (parallel, limited by slowest)          │
 └─────────────────────────────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  [Step 3] Response Synthesis WITH File Search (synthesis.ts)        │
+│  [Step 3] Response Synthesis WITH RAG (synthesis.ts)                │
 │  ─────────────────────────────────────────────────────────────────  │
-│  • Input: Original question + Sub-query results + fileSearchStoreId│
-│  • Process: Single LLM call WITH File Search tool enabled          │
+│  • Input: Original question + Sub-query results + Collection ID    │
+│  • Process: Single LLM call WITH custom RAG enabled                │
 │  • Generates FRESH grounding metadata for synthesized text         │
 │  • Output: Synthesized answer + fresh grounding data               │
 │  • Latency: ~10-15 seconds                                         │
@@ -57,7 +57,7 @@ Query Transformation은 RAG 검색 품질을 향상시키기 위해 사용자 �
 src/lib/gemini/
 ├── query-transform.ts      # Step 1: Query decomposition
 ├── parallel-rag.ts         # Step 2: Parallel sub-query execution
-├── synthesis.ts            # Step 3: Response synthesis WITH File Search
+├── synthesis.ts            # Step 3: Response synthesis WITH custom RAG
 ├── query-with-transform.ts # Entry point (orchestrator)
 ├── chat.ts                 # Original single-query function (fallback)
 └── index.ts                # Exports
@@ -123,7 +123,7 @@ interface SubQueryResult {
 - 5개 중 2개 이상 성공하면 synthesis 진행 가능
 - 실패한 sub-query는 단순히 건너뜀
 
-## Step 3: Response Synthesis (WITH File Search)
+## Step 3: Response Synthesis (WITH Custom RAG)
 
 ### Purpose
 
@@ -155,46 +155,48 @@ Step 3 결과:
 
 #### 해결 방식 (현재 구현)
 
-Synthesis 단계에서 File Search를 다시 호출하여 **합성된 텍스트에 맞는 새로운 grounding**을 생성:
+Synthesis 단계에서 custom RAG를 다시 호출하여 **합성된 텍스트에 맞는 새로운 grounding**을 생성:
 
 ```typescript
 // synthesis.ts - synthesizeResponses 함수
 export async function synthesizeResponses(
   originalQuestion: string,
   subQueryResults: SubQueryResult[],
-  fileSearchStoreId: string // 새로 추가된 파라미터
+  collectionId: string // Collection ID for custom RAG
 ): Promise<ChatResponse> {
-  // ...
+  // Custom RAG로 관련 청크 검색
+  const relevantChunks = await hybridSearch(
+    collectionId,
+    queryEmbedding,
+    originalQuestion
+  );
 
   const response = await client.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: [
       {
         role: 'user' as const,
-        parts: [{ text: prompt }],
+        parts: [{ text: buildPromptWithContext(prompt, relevantChunks) }],
       },
     ],
     config: {
       systemInstruction: SYNTHESIS_SYSTEM_PROMPT,
       temperature: 0.3,
-      tools: [
-        {
-          fileSearch: {
-            fileSearchStoreNames: [`fileSearchStores/${fileSearchStoreId}`],
-          },
-        },
-      ],
     },
   });
 
-  // 합성 응답에서 직접 grounding 추출 (서브쿼리 병합 X)
-  const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-  const { chunks, supports } = extractGroundingData(groundingMetadata);
+  // 검색된 청크에서 grounding 정보 생성
+  const groundingChunks = relevantChunks.map(chunk => ({
+    retrievedContext: {
+      text: chunk.content,
+      paper_id: chunk.paper_id,
+    },
+  }));
 
   return {
     answer: answerText,
-    groundingChunks: chunks, // 합성된 텍스트 기준의 새 grounding
-    groundingSupports: supports, // 합성된 텍스트 기준의 올바른 인덱스
+    groundingChunks: groundingChunks, // custom RAG 기반 grounding
+    groundingSupports: [], // custom RAG에서는 직접 매핑 불필요
   };
 }
 ```
@@ -206,12 +208,12 @@ const SYNTHESIS_SYSTEM_PROMPT = `You are CiteBite, an AI research assistant synt
 
 You will receive preliminary information gathered from search queries. However, you MUST NOT simply restate this information.
 
-CRITICAL: You MUST search the papers using File Search to:
+CRITICAL: Use the provided context from the papers to:
 1. Verify each claim against the actual paper content
 2. Find specific quotes and evidence to support your synthesis
 3. Discover additional relevant details not in the preliminary information
 
-Your response will be grounded with citations from the papers. The quality of your answer depends on how well you search and cite the actual papers.
+Your response will be grounded with citations from the papers. The quality of your answer depends on how well you cite the actual papers.
 
 ## Guidelines
 - Structure: overview → details → implications
@@ -243,11 +245,11 @@ ${r.answer}`
 ${subQuerySection}
 
 ## Your Task
-1. SEARCH the papers using File Search to verify and expand on the above information
+1. Use the provided context to verify and expand on the above information
 2. Synthesize findings into a coherent, well-structured answer
 3. Ensure your response is grounded in the actual paper content
 
-IMPORTANT: Do not just summarize the preliminary information. Use File Search to find supporting evidence and additional details from the papers.`;
+IMPORTANT: Do not just summarize the preliminary information. Use the context to find supporting evidence and additional details from the papers.`;
 }
 ```
 
@@ -280,21 +282,21 @@ export function extractGroundingData(groundingMetadata: unknown): {
 
 ### 현재 알려진 제한사항
 
-Gemini가 프롬프트에 이미 충분한 정보가 있다고 판단하면 File Search를 호출하지 않아 **0 chunks, 0 supports**가 반환될 수 있습니다.
+Custom RAG에서 검색된 청크가 없거나 관련성이 낮은 경우 **0 chunks**가 반환될 수 있습니다.
 
 - ✅ 장점: 깨진/중복 텍스트 렌더링 문제 해결
-- ❌ 단점: citation 하이라이트가 표시되지 않을 수 있음
+- ✅ 장점: pgvector로 직접 제어 가능한 검색 품질
 
 ## Fallback Strategy
 
-파이프라인의 어느 단계에서든 실패하면 기존 `queryWithFileSearch()`로 fallback합니다.
+파이프라인의 어느 단계에서든 실패하면 기존 `queryWithRAG()`로 fallback합니다.
 
-| Scenario               | Action                                               |
-| ---------------------- | ---------------------------------------------------- |
-| Transform LLM fails    | Fallback to `queryWithFileSearch()`                  |
-| <2 sub-queries succeed | Fallback to `queryWithFileSearch()`                  |
-| Synthesis fails        | Return best sub-query answer directly                |
-| All steps fail         | Original error handling from `queryWithFileSearch()` |
+| Scenario               | Action                                        |
+| ---------------------- | --------------------------------------------- |
+| Transform LLM fails    | Fallback to `queryWithRAG()`                  |
+| <2 sub-queries succeed | Fallback to `queryWithRAG()`                  |
+| Synthesis fails        | Return best sub-query answer directly         |
+| All steps fail         | Original error handling from `queryWithRAG()` |
 
 ### getBestSubQueryAnswer (Synthesis 실패 시 Fallback)
 
@@ -346,7 +348,7 @@ export function getBestSubQueryAnswer(results: SubQueryResult[]): ChatResponse {
 [QueryWithTransform] ══════════════════════════════════════════════════
 [QueryWithTransform] 📝 Question: "What are the key device variability issues in memristor arrays?"
 [QueryWithTransform] 📚 Context: 0 previous messages
-[QueryWithTransform] 📦 File Search Store: hardware-neural-network-7ec-4i2sdoktqlrw
+[QueryWithTransform] 📦 Collection ID: hardware-neural-network-7ec-uuid
 
 [QueryTransform] ──────────────────────────────────────────
 [QueryTransform] Step 1: Query Decomposition
@@ -370,7 +372,7 @@ export function getBestSubQueryAnswer(results: SubQueryResult[]): ChatResponse {
 [ParallelRAG] Step 2: Parallel RAG Execution
 [ParallelRAG] ──────────────────────────────────────────
 [ParallelRAG] 🚀 Launching 5 parallel queries...
-[ParallelRAG] 📦 File Search Store: hardware-neural-network-7ec-4i2sdoktqlrw
+[ParallelRAG] 📦 Collection ID: hardware-neural-network-7ec-uuid
 [ParallelRAG]   ├─ [1/5] Starting: "Physical origins, fundamental mechanisms..."
 [ParallelRAG]   ├─ [2/5] Starting: "Experimental characterization techniques..."
 [ParallelRAG]   ├─ [3/5] Starting: "Impact of memristor device variability..."
@@ -397,8 +399,8 @@ export function getBestSubQueryAnswer(results: SubQueryResult[]): ChatResponse {
 [Synthesis]   ├─ [4] 25 chunks, 6417 chars: "## Comparative Analysis..."
 [Synthesis]   ├─ [5] 20 chunks, 4164 chars: "Memristor-based neural networks..."
 [Synthesis] 📝 Synthesis prompt length: 23545 chars
-[Synthesis] 📦 File Search Store: hardware-neural-network-7ec-4i2sdoktqlrw
-[Synthesis] 🔄 Calling Gemini for synthesis WITH File Search...
+[Synthesis] 📦 Collection ID: hardware-neural-network-7ec-uuid
+[Synthesis] 🔄 Calling Gemini for synthesis WITH custom RAG...
 [Synthesis] ✓ Synthesis complete
 [Synthesis] 📊 Output: 8189 chars
 [Synthesis] 🔗 Fresh grounding: 0 chunks, 0 supports
@@ -422,15 +424,15 @@ export function getBestSubQueryAnswer(results: SubQueryResult[]): ChatResponse {
 ### Entry Point
 
 ```typescript
-import { queryWithTransform } from '@/lib/gemini';
+import { queryWithTransform } from '@/lib/rag';
 
 const response = await queryWithTransform(
-  fileSearchStoreId,
+  collectionId,
   userQuestion,
   conversationHistory
 );
 
-// Response type is same as queryWithFileSearch
+// Response type is same as queryWithRAG
 // { answer: string, groundingChunks: [], groundingSupports: [] }
 ```
 
@@ -441,7 +443,7 @@ const response = await queryWithTransform(
 ```typescript
 // Line ~220
 aiResponse = await queryWithTransform(
-  collection.file_search_store_id,
+  collection.id,
   userMessage,
   formattedHistory
 );
@@ -450,11 +452,11 @@ aiResponse = await queryWithTransform(
 ### query-with-transform.ts에서 synthesizeResponses 호출
 
 ```typescript
-// Step 3: Synthesis - fileSearchStoreId를 전달
+// Step 3: Synthesis - collectionId를 전달
 response = await synthesizeResponses(
   userQuestion,
   subQueryResults,
-  fileSearchStoreId // 새로 추가된 인자
+  collectionId // Collection ID for custom RAG
 );
 ```
 
@@ -464,4 +466,4 @@ response = await synthesizeResponses(
 2. **Adaptive Sub-queries**: 간단한 질문은 3개로 줄임
 3. **Skip Transform for Follow-ups**: 후속 질문은 transform 건너뜀
 4. **Streaming**: 각 단계 완료 시 부분 결과 스트리밍
-5. **Improved Grounding**: 프롬프트 최적화로 File Search 호출률 향상
+5. **Improved Grounding**: 프롬프트 최적화로 검색 품질 향상

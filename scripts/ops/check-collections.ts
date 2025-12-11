@@ -17,7 +17,7 @@ async function main() {
   // Get all collections
   const { data: collections, error } = await supabase
     .from('collections')
-    .select('id, name, file_search_store_id, created_at')
+    .select('id, name, created_at')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -37,27 +37,11 @@ async function main() {
     console.log(`${'='.repeat(60)}`);
     console.log(`Collection #${index + 1}`);
     console.log(`${'='.repeat(60)}`);
-    console.log(`ID:                ${collection.id}`);
-    console.log(`Name:              ${collection.name}`);
-    console.log(
-      `File Search Store: ${collection.file_search_store_id || '❌ Not created'}`
-    );
-    console.log(
-      `Created:           ${new Date(collection.created_at).toLocaleString()}`
-    );
+    console.log(`ID:      ${collection.id}`);
+    console.log(`Name:    ${collection.name}`);
+    console.log(`Created: ${new Date(collection.created_at).toLocaleString()}`);
     console.log();
   });
-
-  // Check for collections without stores
-  const withoutStores = collections.filter(c => !c.file_search_store_id);
-  if (withoutStores.length > 0) {
-    console.log(
-      `⚠️  Warning: ${withoutStores.length} collection(s) don't have File Search stores`
-    );
-    console.log(
-      `   This may indicate the collection creation failed midway.\n`
-    );
-  }
 }
 
 main().catch(console.error);

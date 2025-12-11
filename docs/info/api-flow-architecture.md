@@ -35,12 +35,12 @@ API Routes (/api/*)
 ### 주요 외부 API
 
 1. **Semantic Scholar API**: 논문 검색 및 메타데이터 조회
-2. **Gemini File Search API**: PDF 업로드, 벡터 인덱싱, RAG 채팅
+2. **Gemini API**: Embedding (text-embedding-004), Chat (gemini-2.5-flash)
 
 ### Background Job Queues
 
 1. **pdf-download**: PDF 다운로드 및 Supabase Storage 업로드
-2. **pdf-indexing**: PDF를 Gemini File Search Store에 업로드 및 인덱싱
+2. **pdf-indexing**: PDF 청킹, 임베딩 생성, pgvector 저장
 3. **insight-generation**: Collection 인사이트 자동 생성 (미구현)
 
 ---
@@ -208,7 +208,6 @@ RETURNING *;
   search_query: "attention mechanisms transformers",
   filters: { yearFrom: 2017, minCitations: 100 },
   user_id: "user-uuid",
-  file_search_store_id: null, // 아직 미생성
   created_at: "2025-11-19T10:00:00Z",
   updated_at: "2025-11-19T10:00:00Z"
 }
@@ -276,87 +275,7 @@ collections (1) ←→ (N) collection_papers (N) ←→ (1) papers
 
 ---
 
-#### Step 6: Gemini File Search Store 생성
-
-**파일**: `src/app/api/collections/route.ts:148-164`
-
-```typescript
-const storeResult = await createFileSearchStore(
-  collection.id,
-  `${validatedData.name} - ${collection.id.substring(0, 8)}`
-);
-
-if (storeResult.success && storeResult.storeId) {
-  await updateCollectionFileSearchStore(
-    supabase,
-    collection.id,
-    storeResult.storeId
-  );
-}
-```
-
-**호출 함수**: `createFileSearchStore()` - `src/lib/gemini/fileSearch.ts:41`
-
-**Gemini API 호출 상세**:
-
-1. **Gemini Client 초기화** (`fileSearch.ts:46`)
-
-   ```typescript
-   const client = getGeminiClient();
-   ```
-
-   - 환경변수 `GEMINI_API_KEY` 사용
-   - SDK: `@google/generative-ai` v1.29.1
-
-2. **File Search Store 생성 요청** (`fileSearch.ts:51-55`)
-
-   ```typescript
-   const store = await client.fileSearchStores.create({
-     config: {
-       displayName: 'Transformer Models - abc12345',
-     },
-   });
-   ```
-
-   - 실제 API 엔드포인트: `POST https://generativelanguage.googleapis.com/v1beta/fileSearchStores`
-   - Request Body:
-     ```json
-     {
-       "config": {
-         "displayName": "Transformer Models - abc12345"
-       }
-     }
-     ```
-
-3. **Store ID 추출** (`fileSearch.ts:59`)
-
-   ```typescript
-   const storeId = store.name?.split('/').pop();
-   ```
-
-   - Response에서 resource name 파싱
-   - 예: `fileSearchStores/store_abc123` → `store_abc123`
-
-4. **Database 업데이트** (`collections.ts`)
-   ```sql
-   UPDATE collections
-   SET file_search_store_id = $1
-   WHERE id = $2;
-   ```
-
-**생성된 Store 정보**:
-
-```typescript
-{
-  success: true,
-  storeId: "store_abc123xyz",
-  storeName: "Transformer Models - abc12345"
-}
-```
-
----
-
-#### Step 7: Open Access Papers의 PDF 다운로드 Job 큐잉
+#### Step 6: Open Access Papers의 PDF 다운로드 Job 큐잉
 
 **파일**: `src/app/api/collections/route.ts:166-180`
 
@@ -441,7 +360,7 @@ for (const paper of openAccessPapers) {
 
 ---
 
-#### Step 8: API 응답 반환
+#### Step 7: API 응답 반환
 
 **파일**: `src/app/api/collections/route.ts:185-206`
 
@@ -455,7 +374,6 @@ return NextResponse.json(
         name: collection.name,
         searchQuery: collection.search_query,
         filters: collection.filters,
-        fileSearchStoreId: storeResult.storeId || null,
         createdAt: collection.created_at,
       },
       stats: {
@@ -481,7 +399,6 @@ return NextResponse.json(
       "name": "Transformer Models",
       "searchQuery": "attention mechanisms transformers",
       "filters": { "yearFrom": 2017, "minCitations": 100 },
-      "fileSearchStoreId": "store_abc123xyz",
       "createdAt": "2025-11-19T10:00:00Z"
     },
     "stats": {
@@ -601,6 +518,7 @@ const storagePath = await uploadPdf(collectionId, paperId, pdfBuffer);
    ```
 
 2. **파일 업로드**
+
    ```typescript
    const { data, error } = await supabase.storage
      .from('pdfs')
@@ -748,11 +666,11 @@ pdfDownloadWorker.on('failed', async (job, err) => {
 
 ---
 
-## 4. PDF 인덱싱 파이프라인
+## 4. PDF 인덱싱 파이프라인 (Custom RAG with pgvector)
 
 ### 4.1 Background Worker 시작
 
-**파일**: `src/lib/jobs/workers/pdfIndexWorker.ts:156`
+**파일**: `src/lib/jobs/workers/pdfIndexWorker.ts`
 
 ```typescript
 export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
@@ -761,9 +679,9 @@ export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
     processPdfIndexing,
     {
       connection,
-      concurrency: 3, // Gemini API rate limit 고려
+      concurrency: 3, // Gemini Embedding API rate limit 고려
       limiter: {
-        max: 5, // 초당 최대 5개 job
+        max: 5,
         duration: 1000,
       },
     }
@@ -774,14 +692,12 @@ export function startPdfIndexWorker(): Worker<PdfIndexJobData> | null {
 **Worker 설정**:
 
 - Queue 이름: `pdf-indexing`
-- 동시 처리: 3개 (Gemini API rate limit 때문에 낮춤)
+- 동시 처리: 3개 (Gemini Embedding API rate limit 고려)
 - Rate limit: 초당 5개
 
 ---
 
-### 4.2 PDF 인덱싱 Job 처리
-
-**파일**: `src/lib/jobs/workers/pdfIndexWorker.ts:20`
+### 4.2 PDF 인덱싱 Job 처리 (Custom RAG)
 
 ```typescript
 async function processPdfIndexing(job: Job<PdfIndexJobData>) {
@@ -791,36 +707,7 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
 }
 ```
 
-#### Step 1: Collection의 File Search Store ID 조회
-
-**파일**: `pdfIndexWorker.ts:31-47`
-
-```typescript
-const { data: collection, error: collectionError } = await supabase
-  .from('collections')
-  .select('file_search_store_id')
-  .eq('id', collectionId)
-  .single();
-
-if (!collection.file_search_store_id) {
-  throw new Error('Collection missing file_search_store_id');
-}
-```
-
-**Database 쿼리**:
-
-```sql
-SELECT file_search_store_id
-FROM collections
-WHERE id = $1
-LIMIT 1;
-```
-
----
-
-#### Step 2: Paper 메타데이터 조회
-
-**파일**: `pdfIndexWorker.ts:54-64`
+#### Step 1: Paper 메타데이터 조회
 
 ```typescript
 const { data: paper, error: paperError } = await supabase
@@ -828,15 +715,6 @@ const { data: paper, error: paperError } = await supabase
   .select('paper_id, title, authors, year, venue')
   .eq('paper_id', paperId)
   .single();
-```
-
-**Database 쿼리**:
-
-```sql
-SELECT paper_id, title, authors, year, venue
-FROM papers
-WHERE paper_id = $1
-LIMIT 1;
 ```
 
 **조회된 데이터 예시**:
@@ -856,9 +734,7 @@ LIMIT 1;
 
 ---
 
-#### Step 3: Supabase Storage에서 PDF 다운로드
-
-**파일**: `pdfIndexWorker.ts:72`
+#### Step 2: Supabase Storage에서 PDF 다운로드
 
 ```typescript
 const pdfBuffer = await downloadPdf(collectionId, paperId);
@@ -866,224 +742,93 @@ const pdfBuffer = await downloadPdf(collectionId, paperId);
 
 **호출 함수**: `downloadPdf()` - `src/lib/storage/supabaseStorage.ts`
 
-**Supabase Storage API 호출**:
+---
+
+#### Step 3: PDF 텍스트 추출 및 청킹
 
 ```typescript
-const { data, error } = await supabase.storage
-  .from('pdfs')
-  .download(`${collectionId}/${paperId}.pdf`);
+// PDF 텍스트 추출
+const text = await extractTextFromPdf(pdfBuffer);
 
-const arrayBuffer = await data.arrayBuffer();
-const buffer = Buffer.from(arrayBuffer);
+// 고정 크기 청킹 (연구 논문 최적화)
+const chunks = chunkText(text, {
+  chunkSize: 1500, // 토큰 기준
+  overlap: 200, // 오버랩
+});
+```
+
+**청킹 전략**: Fixed-size chunking
+
+- **chunk_size**: 1500 tokens
+- **overlap**: 200 tokens
+- 연구 논문의 긴 문맥을 보존하면서 임베딩 품질 유지
+
+---
+
+#### Step 4: Gemini Embedding으로 벡터 생성
+
+```typescript
+// Gemini text-embedding-004 사용
+const embeddings = await generateEmbeddings(chunks);
+```
+
+**Gemini Embedding API 호출**:
+
+```typescript
+const response = await client.models.embedContent({
+  model: 'text-embedding-004',
+  content: { parts: [{ text: chunkText }] },
+  taskType: 'RETRIEVAL_DOCUMENT',
+});
+
+// 768 차원 벡터 반환
+const embedding = response.embedding.values;
 ```
 
 ---
 
-#### Step 4: Gemini 메타데이터 준비
-
-**파일**: `pdfIndexWorker.ts:78-91`
+#### Step 5: pgvector에 청크 저장
 
 ```typescript
-const authorsString = paper.authors ? JSON.stringify(paper.authors) : undefined;
-
-const metadata: PaperMetadata = {
-  paper_id: paper.paper_id,
-  title: paper.title.substring(0, 256), // Gemini 제한: 256자
-  authors: authorsString?.substring(0, 256), // Gemini 제한: 256자
-  year: paper.year || undefined,
-  venue: paper.venue?.substring(0, 256), // Gemini 제한: 256자
-};
-```
-
-**중요**: Gemini File Search의 custom metadata는 **string value 최대 256자 제한**
-
-**메타데이터 예시**:
-
-```typescript
-{
-  paper_id: "abc123",
-  title: "Attention Is All You Need",
-  authors: "[{\"name\":\"Ashish Vaswani\",\"authorId\":\"...\"}]",
-  year: 2017,
-  venue: "NeurIPS"
-}
-```
-
----
-
-#### Step 5: Gemini File Search Store에 PDF 업로드
-
-**파일**: `pdfIndexWorker.ts:98-103`
-
-```typescript
-const result = await withRetry(
-  () => uploadPdfToStore(collection.file_search_store_id!, pdfBuffer, metadata),
-  3, // max retries
-  1000 // initial delay 1s
+// paper_chunks 테이블에 저장
+await supabase.from('paper_chunks').insert(
+  chunks.map((chunk, idx) => ({
+    paper_id: paperId,
+    collection_id: collectionId,
+    chunk_index: idx,
+    content: chunk.text,
+    embedding: embeddings[idx], // 768 차원 벡터
+  }))
 );
 ```
 
-**호출 함수**: `uploadPdfToStore()` - `src/lib/gemini/fileSearch.ts:93`
+**Database 스키마**:
 
-**Gemini API 호출 상세**:
+```sql
+CREATE TABLE paper_chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  paper_id TEXT NOT NULL REFERENCES papers(paper_id),
+  collection_id UUID NOT NULL REFERENCES collections(id),
+  chunk_index INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  embedding vector(768) NOT NULL,  -- pgvector
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-1. **Buffer를 Blob으로 변환** (`fileSearch.ts:103`)
-
-   ```typescript
-   const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
-   ```
-
-2. **File Search Store에 업로드** (`fileSearch.ts:106-126`)
-
-   ```typescript
-   const operation = await client.fileSearchStores.uploadToFileSearchStore({
-     fileSearchStoreName: `fileSearchStores/${storeId}`,
-     file: blob,
-     config: {
-       mimeType: 'application/pdf',
-       displayName: metadata.title,
-       customMetadata: [
-         { key: 'paper_id', stringValue: metadata.paper_id },
-         { key: 'title', stringValue: metadata.title },
-         { key: 'authors', stringValue: metadata.authors },
-         { key: 'year', stringValue: metadata.year.toString() },
-         { key: 'venue', stringValue: metadata.venue },
-       ],
-     },
-   });
-   ```
-
-   **실제 API 엔드포인트**:
-
-   ```
-   POST https://generativelanguage.googleapis.com/v1beta/fileSearchStores/{storeId}/uploadToFileSearchStore
-   ```
-
-   **Request 구조**:
-   - Content-Type: `multipart/form-data`
-   - PDF 파일 binary
-   - Metadata JSON
-
-3. **Operation 완료 확인** (`fileSearch.ts:136-144`)
-
-   ```typescript
-   if (operation.response && operation.response.documentName) {
-     // 즉시 완료된 경우
-     const fileId = operation.response.documentName.split('/').pop();
-     return { success: true, fileId };
-   }
-   ```
-
-4. **Polling으로 완료 대기** (`fileSearch.ts:149-169`)
-
-   ```typescript
-   const result = await pollOperation(operation, client);
-   ```
-
-   **Polling 로직** (`fileSearch.ts:274-355`):
-
-   ```typescript
-   async function pollOperation(...) {
-     let attempts = 0;
-     const MAX_POLLING_ATTEMPTS = 60;     // 최대 60회
-     const POLLING_INTERVAL_MS = 5000;    // 5초 간격
-
-     while (attempts < MAX_POLLING_ATTEMPTS) {
-       const updatedOperation = await client.operations.get({
-         name: operation.name,
-       });
-
-       if (updatedOperation.done) {
-         const fileId = updatedOperation.response?.documentName.split('/').pop();
-         return { success: true, fileId };
-       }
-
-       await sleep(5000);
-       attempts++;
-     }
-
-     // Timeout: 5분 (60 * 5초)
-     return { success: false, error: 'Operation timeout' };
-   }
-   ```
-
-**Gemini File Search 내부 처리**:
-
-1. PDF 파일 수신 및 저장
-2. PDF를 청크(chunk)로 분할
-3. 각 청크를 벡터로 임베딩
-4. 벡터 DB에 저장 (semantic search 가능)
-5. Operation 완료
-
-**성공 응답**:
-
-```typescript
-{
-  success: true,
-  fileId: "documents/xyz789"
-}
+-- HNSW 인덱스로 빠른 유사도 검색
+CREATE INDEX paper_chunks_embedding_idx ON paper_chunks
+  USING hnsw (embedding vector_cosine_ops);
 ```
 
 ---
 
-#### Step 6: Retry 로직 (Rate Limit 처리)
-
-**파일**: `src/lib/gemini/fileSearch.ts:392`
+#### Step 6: Database 상태 업데이트
 
 ```typescript
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  initialDelayMs = 1000
-): Promise<T> {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const isRateLimit =
-        error.message?.includes('quota') ||
-        error.message?.includes('rate limit') ||
-        error.code === 429;
-
-      if (!isRateLimit || i === maxRetries - 1) {
-        throw error;
-      }
-
-      // Exponential backoff
-      const delay = initialDelayMs * Math.pow(2, i);
-      console.log(`Rate limit hit, retrying in ${delay}ms`);
-      await sleep(delay);
-    }
-  }
-}
-```
-
-**Retry 전략**:
-
-- 1차 실패: 1초 대기
-- 2차 실패: 2초 대기
-- 3차 실패: 4초 대기
-- 3회 실패 후 throw
-
----
-
-#### Step 7: Database 상태 업데이트
-
-**파일**: `pdfIndexWorker.ts:114-117`
-
-```typescript
-const { error: updateError } = await supabase
+await supabase
   .from('papers')
   .update({ vector_status: 'completed' })
   .eq('paper_id', paperId);
-```
-
-**Database 쿼리**:
-
-```sql
-UPDATE papers
-SET vector_status = 'completed'
-WHERE paper_id = $1;
 ```
 
 **상태 전이**:
@@ -1096,13 +841,10 @@ processing → completed
 
 ### 4.3 에러 처리
 
-**파일**: `pdfIndexWorker.ts:132-150`
-
 ```typescript
 catch (error) {
   console.error('Failed to process job:', error);
 
-  // 실패 시 상태 업데이트
   await supabase
     .from('papers')
     .update({ vector_status: 'failed' })
@@ -1110,19 +852,6 @@ catch (error) {
 
   throw error; // BullMQ가 retry 처리
 }
-```
-
-**Worker Event Handlers** (`pdfIndexWorker.ts:188-201`):
-
-```typescript
-pdfIndexWorker.on('completed', async job => {
-  console.log(`Job ${job.id} completed for paper ${job.data.paperId}`);
-});
-
-pdfIndexWorker.on('failed', async (job, err) => {
-  console.error(`Job ${job.id} failed:`, err.message);
-  // Note: 상태 업데이트는 processPdfIndexing의 catch에서 처리됨
-});
 ```
 
 ---
@@ -1246,19 +975,12 @@ const conversation = await getConversationWithOwnership(
   user.id
 );
 
-// Collection 확인 및 File Search Store 검증
+// Collection 확인
 const collection = await getCollectionWithOwnership(
   supabase,
   conversation.collection_id,
   user.id
 );
-
-if (!collection.file_search_store_id) {
-  return NextResponse.json(
-    { error: 'Collection has no papers indexed yet' },
-    { status: 400 }
-  );
-}
 ```
 
 **Database 쿼리**:
@@ -1354,189 +1076,109 @@ LIMIT 10;
 
 ---
 
-#### Step 5: Gemini에 File Search 쿼리
+#### Step 5: Custom RAG 검색 및 Gemini 응답 생성
 
 **파일**: `messages/route.ts:223-228`
 
 ```typescript
-aiResponse = await queryWithFileSearch(
-  collection.file_search_store_id,
+aiResponse = await queryWithRAG(
+  collection.id,
   userMessage,
   formattedHistory,
   collectionPaperIds
 );
 ```
 
-**호출 함수**: `queryWithFileSearch()` - `src/lib/gemini/chat.ts:50`
+**호출 함수**: `queryWithRAG()` - `src/lib/rag/chat.ts`
 
-**Gemini API 호출 상세**:
+**Custom RAG 처리 과정**:
 
-1. **Content 배열 구성** (`chat.ts:62-72`)
-
-   ```typescript
-   const contents = [
-     // Conversation history
-     ...conversationHistory.map(msg => ({
-       role: msg.role === 'assistant' ? 'model' : 'user',
-       parts: [{ text: msg.content }],
-     })),
-     // New user message
-     {
-       role: 'user',
-       parts: [{ text: userMessage }],
-     },
-   ];
-   ```
-
-   **구성된 Contents 예시**:
+1. **Query 임베딩 생성**
 
    ```typescript
-   [
-     { role: 'user', parts: [{ text: 'What are transformers?' }] },
-     { role: 'model', parts: [{ text: 'Transformers are...' }] },
-     { role: 'user', parts: [{ text: 'How does self-attention work?' }] },
-   ];
+   const queryEmbedding = await generateEmbedding(userMessage);
    ```
 
-2. **Gemini generateContent 호출** (`chat.ts:76-88`)
+   - Gemini text-embedding-004 사용
+   - 768 차원 벡터 생성
+
+2. **Hybrid Search (Vector + Keyword)**
 
    ```typescript
-   const response = await client.models.generateContent({
-     model: 'gemini-2.5-flash',
-     contents,
-     config: {
-       tools: [
-         {
-           fileSearch: {
-             fileSearchStoreNames: [`fileSearchStores/${fileSearchStoreId}`],
-           },
-         },
-       ],
-     },
-   });
-   ```
-
-   **실제 API 엔드포인트**:
-
-   ```
-   POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
-   ```
-
-   **Request Body**:
-
-   ```json
-   {
-     "contents": [
-       {
-         "role": "user",
-         "parts": [{ "text": "What are transformers?" }]
-       },
-       {
-         "role": "model",
-         "parts": [
-           { "text": "Transformers are neural network architectures..." }
-         ]
-       },
-       {
-         "role": "user",
-         "parts": [{ "text": "How does self-attention work?" }]
-       }
-     ],
-     "tools": [
-       {
-         "fileSearch": {
-           "fileSearchStoreNames": ["fileSearchStores/store_abc123xyz"]
-         }
-       }
-     ]
-   }
-   ```
-
-3. **Gemini 내부 처리 과정**:
-
-   a. **User query 분석**
-   - 질문의 의도 파악
-   - 검색 키워드 추출
-
-   b. **File Search Store에서 관련 문서 검색**
-   - User query를 벡터로 임베딩
-   - File Search Store의 벡터 DB에서 유사도 검색 (semantic search)
-   - 가장 관련성 높은 청크(chunk) 추출
-
-   c. **Grounded response 생성**
-   - 검색된 문서 청크를 context로 사용
-   - LLM이 context 기반으로 답변 생성
-   - 사용된 청크에 대한 citation 메타데이터 포함
-
-4. **응답 추출** (`chat.ts:94-105`)
-
-   ```typescript
-   const answer =
-     response.candidates?.[0]?.content?.parts?.[0]?.text ||
-     'No answer generated';
-
-   const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-
-   const citedPapers = extractCitationsFromMetadata(
-     groundingMetadata,
-     collectionPaperIds
+   const relevantChunks = await hybridSearch(
+     collectionId,
+     queryEmbedding,
+     userMessage,
+     { topK: 15, vectorWeight: 0.7, keywordWeight: 0.3 }
    );
    ```
 
-   **Gemini Response 구조**:
+   **pgvector Cosine Similarity 검색**:
 
-   ```json
-   {
-     "candidates": [
+   ```sql
+   SELECT
+     pc.paper_id,
+     pc.content,
+     pc.chunk_index,
+     1 - (pc.embedding <=> $1::vector) as similarity
+   FROM paper_chunks pc
+   WHERE pc.collection_id = $2
+   ORDER BY pc.embedding <=> $1::vector
+   LIMIT $3;
+   ```
+
+   **Reciprocal Rank Fusion (RRF)**:
+   - Vector search (70%) + Keyword search (30%)
+   - 다양한 관련 청크 검색
+
+3. **Context 구성 및 Gemini 호출**
+
+   ```typescript
+   const context = relevantChunks
+     .map(c => `[${c.paper_id}] ${c.content}`)
+     .join('\n\n');
+
+   const response = await client.models.generateContent({
+     model: 'gemini-2.5-flash',
+     contents: [
+       ...conversationHistory,
        {
-         "content": {
-           "parts": [
-             {
-               "text": "Self-attention allows the model to weigh the importance of different words..."
-             }
-           ],
-           "role": "model"
-         },
-         "groundingMetadata": {
-           "groundingChunks": [
-             {
-               "document": {
-                 "name": "documents/xyz789",
-                 "metadata": [
-                   { "key": "paper_id", "stringValue": "abc123" },
-                   {
-                     "key": "title",
-                     "stringValue": "Attention Is All You Need"
-                   }
-                 ]
-               },
-               "relevanceScore": 0.95
-             }
-           ]
-         }
-       }
-     ]
-   }
+         role: 'user',
+         parts: [{ text: buildPromptWithContext(userMessage, context) }],
+       },
+     ],
+   });
+   ```
+
+4. **Grounding 데이터 추출**
+
+   검색된 청크에서 직접 grounding 정보 생성:
+
+   ```typescript
+   const groundingChunks = relevantChunks.map(chunk => ({
+     retrievedContext: {
+       text: chunk.content,
+       paper_id: chunk.paper_id,
+     },
+   }));
    ```
 
 ---
 
 #### Step 6: Citations 추출 및 검증
 
-**파일**: `chat.ts:156`
+Custom RAG에서는 검색된 청크에서 직접 citation 정보를 추출합니다:
 
 ```typescript
-function extractCitationsFromMetadata(
-  groundingMetadata: unknown,
+function extractCitationsFromChunks(
+  chunks: RetrievedChunk[],
   collectionPaperIds: string[]
 ): CitedPaper[] {
-  const chunks = groundingMetadata.groundingChunks || [];
   const citedPapers: CitedPaper[] = [];
   const seenPaperIds = new Set<string>();
 
   for (const chunk of chunks) {
-    // Paper ID 추출
-    let paperId = extractPaperIdFromChunk(chunk);
+    const paperId = chunk.paper_id;
 
     // Collection에 속한 paper인지 검증
     if (paperId && collectionPaperIds.includes(paperId)) {
@@ -1545,14 +1187,9 @@ function extractCitationsFromMetadata(
 
         citedPapers.push({
           paperId,
-          title: chunk.metadata?.title || 'Unknown paper',
-          relevanceScore: chunk.relevanceScore,
+          similarity: chunk.similarity,
         });
       }
-    } else if (paperId) {
-      console.warn(
-        `Paper ${paperId} cited but not in collection (hallucination)`
-      );
     }
   }
 
@@ -1560,29 +1197,17 @@ function extractCitationsFromMetadata(
 }
 ```
 
-**Citation 추출 로직** (`chat.ts:181-228`):
-
-1. **grounding chunks 순회**
-2. **각 chunk에서 paper_id 추출**:
-   - `chunk.metadata.paper_id`
-   - `chunk.document.metadata.paper_id`
-   - `chunk.documentName` 파싱
-3. **Collection에 속한 paper인지 검증** (hallucination 방지)
-4. **중복 제거** (Set 사용)
-
 **추출된 Citations 예시**:
 
 ```typescript
 [
   {
     paperId: 'abc123',
-    title: 'Attention Is All You Need',
-    relevanceScore: 0.95,
+    similarity: 0.95,
   },
   {
     paperId: 'def456',
-    title: 'BERT: Pre-training of Deep Bidirectional Transformers',
-    relevanceScore: 0.87,
+    similarity: 0.87,
   },
 ];
 ```
@@ -2041,7 +1666,6 @@ User → Frontend → API Route → External API / Database → Background Jobs
 1. Collection 생성 (POST /api/collections)
    ├─ Semantic Scholar API: Paper 검색
    ├─ Database: Collection, Papers, collection_papers INSERT
-   ├─ Gemini API: File Search Store 생성
    └─ BullMQ: PDF Download jobs 큐잉 (45개)
 
 2. PDF 다운로드 (Background Worker)
@@ -2050,12 +1674,11 @@ User → Frontend → API Route → External API / Database → Background Jobs
    ├─ Database: vector_status = 'processing'
    └─ BullMQ: PDF Indexing jobs 큐잉
 
-3. PDF 인덱싱 (Background Worker)
+3. PDF 인덱싱 (Background Worker) - Custom RAG
    ├─ Supabase Storage: PDF 다운로드
-   ├─ Gemini API: File Search Store에 업로드
-   │  ├─ PDF 청크 분할
-   │  ├─ 벡터 임베딩
-   │  └─ 벡터 DB 저장
+   ├─ PDF 텍스트 추출 및 청킹
+   ├─ Gemini Embedding API: 벡터 생성
+   ├─ pgvector: 청크 저장
    └─ Database: vector_status = 'completed'
 
 4. Conversation 생성 (POST /api/conversations)
@@ -2063,11 +1686,11 @@ User → Frontend → API Route → External API / Database → Background Jobs
 
 5. 메시지 전송 (POST /api/conversations/[id]/messages)
    ├─ Database: Conversation history, Collection papers 조회
-   ├─ Gemini API: File Search 쿼리
-   │  ├─ Query 벡터 임베딩
-   │  ├─ 유사도 검색 (semantic search)
-   │  ├─ 관련 청크 추출
-   │  └─ Grounded response 생성
+   ├─ Custom RAG:
+   │  ├─ Query 벡터 임베딩 (Gemini text-embedding-004)
+   │  ├─ pgvector 유사도 검색 (cosine similarity)
+   │  ├─ Hybrid search (vector + keyword)
+   │  └─ Gemini 2.5 Flash로 응답 생성
    ├─ Citations 추출 및 검증
    └─ Database: User message, Assistant message INSERT
 
@@ -2099,21 +1722,21 @@ waiting → active → completed
 
 2. **Background Jobs**:
    - PDF 다운로드: 5개 동시, 초당 10개 제한
-   - PDF 인덱싱: 3개 동시, 초당 5개 제한 (Gemini rate limit)
+   - PDF 인덱싱: 3개 동시, 초당 5개 제한 (Gemini Embedding rate limit)
 
 3. **Retry 전략**:
    - Semantic Scholar: 3회, exponential backoff (1s → 2s → 4s)
    - PDF Download: 3회, exponential backoff (2s → 4s → 8s)
    - PDF Indexing: 3회, exponential backoff (5s → 10s → 20s)
-   - Gemini Rate Limit: 3회, exponential backoff (1s → 2s → 4s)
+   - Gemini Embedding Rate Limit: 3회, exponential backoff (1s → 2s → 4s)
 
 4. **Database 최적화**:
    - Index on: `collections.user_id`, `papers.paper_id`, `collection_papers.(collection_id, paper_id)`
+   - HNSW index on: `paper_chunks.embedding` (pgvector cosine similarity)
    - Upsert로 중복 방지
    - JOIN으로 N+1 방지
 
 5. **Polling**:
-   - Gemini Operation: 5초 간격, 최대 5분 (60회)
    - Collection Status (Frontend): 5초 간격, `allProcessed: true`까지
 
 ---
@@ -2133,18 +1756,18 @@ waiting → active → completed
 
 ### Conversations
 
-| Method | Endpoint                           | 설명                            | 주요 함수                                                                  |
-| ------ | ---------------------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| POST   | `/api/conversations`               | Conversation 생성               | `createConversation()`                                                     |
-| GET    | `/api/conversations/[id]/messages` | 메시지 조회 (cursor pagination) | `getMessagesByConversationWithCursor()`                                    |
-| POST   | `/api/conversations/[id]/messages` | 메시지 전송 및 AI 응답          | `queryWithFileSearch()`, `validateAndEnrichCitations()`, `createMessage()` |
+| Method | Endpoint                           | 설명                            | 주요 함수                                                           |
+| ------ | ---------------------------------- | ------------------------------- | ------------------------------------------------------------------- |
+| POST   | `/api/conversations`               | Conversation 생성               | `createConversation()`                                              |
+| GET    | `/api/conversations/[id]/messages` | 메시지 조회 (cursor pagination) | `getMessagesByConversationWithCursor()`                             |
+| POST   | `/api/conversations/[id]/messages` | 메시지 전송 및 AI 응답          | `queryWithRAG()`, `validateAndEnrichCitations()`, `createMessage()` |
 
 ### Background Workers
 
-| Worker              | Queue          | 처리                                         | 주요 함수                                                   |
-| ------------------- | -------------- | -------------------------------------------- | ----------------------------------------------------------- |
-| PDF Download Worker | `pdf-download` | PDF 다운로드 → Supabase Storage 업로드       | `downloadPdfFromUrl()`, `uploadPdf()`, `queuePdfIndexing()` |
-| PDF Index Worker    | `pdf-indexing` | Supabase Storage → Gemini File Search 업로드 | `downloadPdf()`, `uploadPdfToStore()`                       |
+| Worker              | Queue          | 처리                                      | 주요 함수                                                   |
+| ------------------- | -------------- | ----------------------------------------- | ----------------------------------------------------------- |
+| PDF Download Worker | `pdf-download` | PDF 다운로드 → Supabase Storage 업로드    | `downloadPdfFromUrl()`, `uploadPdf()`, `queuePdfIndexing()` |
+| PDF Index Worker    | `pdf-indexing` | PDF 청킹 → Embedding 생성 → pgvector 저장 | `downloadPdf()`, `chunkText()`, `generateEmbeddings()`      |
 
 ---
 

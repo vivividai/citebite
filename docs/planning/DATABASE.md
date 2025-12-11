@@ -9,7 +9,7 @@
 ## 관련 문서
 
 - **[전체 아키텍처](./OVERVIEW.md)** - 시스템 개요 및 데이터 흐름
-- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API
+- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar API
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리
 - **[백엔드 스택](./BACKEND.md)** - Node.js, API Routes, 인증
 - **[인프라 및 운영](./INFRASTRUCTURE.md)** - 배포, 백그라운드 작업, 보안
@@ -49,7 +49,7 @@ CREATE TABLE collections (
   search_query TEXT NOT NULL,
   filters JSONB,
   is_public BOOLEAN DEFAULT FALSE,
-  file_search_store_id VARCHAR(255), -- Gemini Store ID
+  -- Note: file_search_store_id 컬럼은 더 이상 사용하지 않음 (pgvector로 전환)
   insight_summary JSONB,
   created_at TIMESTAMP DEFAULT NOW(),
   last_updated_at TIMESTAMP DEFAULT NOW(),
@@ -527,33 +527,40 @@ USING (
 
 ---
 
-## 4. Vector Database (Gemini File Search)
+## 4. Vector Database (pgvector)
 
-**역할**: 앞서 [외부 API 가이드](./EXTERNAL_APIS.md)의 섹션 2.2에서 상세 설명
+**역할**: 논문 청크의 벡터 임베딩 저장 및 유사도 검색
 
 **데이터 플로우:**
 
 1. PDF 파일 → Supabase Storage 저장 (원본 보관)
-2. PDF Buffer → Gemini File Search Store 업로드
-3. Gemini: 텍스트 추출 → 청킹 → 임베딩 → 인덱싱
-4. 쿼리 시: Gemini에서 시맨틱 검색 → 컨텍스트 반환
+2. PDF → 텍스트 추출 (pdf-parse)
+3. 텍스트 → 청킹 (4096자, 600자 오버랩)
+4. 청크 → Gemini embedding-001로 768차원 벡터 생성
+5. 벡터 → pgvector paper_chunks 테이블에 저장
+6. 쿼리 시: 하이브리드 검색 (벡터 70% + 키워드 30%)
 
-**컬렉션별 Store 매핑:**
+**paper_chunks 테이블:**
 
-```typescript
-// Collection 테이블의 file_search_store_id 필드에 저장
-const supabase = createServerSupabaseClient();
-const { data: collection } = await supabase
-  .from('collections')
-  .select('file_search_store_id')
-  .eq('id', collectionId)
-  .single();
+```sql
+CREATE TABLE paper_chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  paper_id VARCHAR(255) NOT NULL,
+  collection_id UUID NOT NULL,
+  content TEXT NOT NULL,
+  chunk_index INT NOT NULL,
+  token_count INT NOT NULL,
+  embedding vector(768) NOT NULL,
+  content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-const storeId = collection.file_search_store_id;
-// 이 Store ID로 Gemini에 쿼리
+-- HNSW 인덱스로 고속 검색
+CREATE INDEX idx_chunks_embedding_hnsw ON paper_chunks
+USING hnsw (embedding vector_cosine_ops);
 ```
 
 **공개 컬렉션 복사 시:**
 
-- 동일한 `file_search_store_id` 참조 → 벡터 데이터 재사용
+- 동일한 paper_id의 청크는 재사용 가능
 - 비용 절감 + 인덱싱 시간 단축

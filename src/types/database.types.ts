@@ -116,7 +116,6 @@ export type Database = {
           candidate_count: number | null;
           copy_count: number | null;
           created_at: string | null;
-          file_search_store_id: string | null;
           filters: Json | null;
           id: string;
           insight_summary: Json | null;
@@ -133,7 +132,6 @@ export type Database = {
           candidate_count?: number | null;
           copy_count?: number | null;
           created_at?: string | null;
-          file_search_store_id?: string | null;
           filters?: Json | null;
           id?: string;
           insight_summary?: Json | null;
@@ -150,7 +148,6 @@ export type Database = {
           candidate_count?: number | null;
           copy_count?: number | null;
           created_at?: string | null;
-          file_search_store_id?: string | null;
           filters?: Json | null;
           id?: string;
           insight_summary?: Json | null;
@@ -250,6 +247,57 @@ export type Database = {
           },
         ];
       };
+      paper_chunks: {
+        Row: {
+          chunk_index: number;
+          collection_id: string;
+          content: string;
+          content_tsv: unknown;
+          created_at: string | null;
+          embedding: string;
+          id: string;
+          paper_id: string;
+          token_count: number;
+        };
+        Insert: {
+          chunk_index: number;
+          collection_id: string;
+          content: string;
+          content_tsv?: unknown;
+          created_at?: string | null;
+          embedding: string;
+          id?: string;
+          paper_id: string;
+          token_count: number;
+        };
+        Update: {
+          chunk_index?: number;
+          collection_id?: string;
+          content?: string;
+          content_tsv?: unknown;
+          created_at?: string | null;
+          embedding?: string;
+          id?: string;
+          paper_id?: string;
+          token_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'paper_chunks_collection_id_fkey';
+            columns: ['collection_id'];
+            isOneToOne: false;
+            referencedRelation: 'collections';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'paper_chunks_paper_id_fkey';
+            columns: ['paper_id'];
+            isOneToOne: false;
+            referencedRelation: 'papers';
+            referencedColumns: ['paper_id'];
+          },
+        ];
+      };
       papers: {
         Row: {
           abstract: string | null;
@@ -332,6 +380,24 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      hybrid_search: {
+        Args: {
+          p_collection_id: string;
+          p_limit?: number;
+          p_query_embedding: string;
+          p_query_text: string;
+          p_semantic_weight?: number;
+        };
+        Returns: {
+          chunk_id: string;
+          chunk_index: number;
+          combined_score: number;
+          content: string;
+          keyword_score: number;
+          paper_id: string;
+          semantic_score: number;
+        }[];
+      };
       update_bulk_upload_file: {
         Args: { p_file_id: string; p_session_id: string; p_update: Json };
         Returns: undefined;

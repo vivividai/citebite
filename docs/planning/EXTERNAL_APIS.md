@@ -3,7 +3,9 @@
 **문서 버전**: v1.1
 **작성일**: 2025-11-15
 **최종 수정**: 2025-11-21 (SPECTER2 API 업데이트)
-**목적**: Semantic Scholar API, HuggingFace API, Gemini File Search API 통합을 위한 상세 가이드
+**목적**: Semantic Scholar API 통합을 위한 상세 가이드
+
+> **Note**: Gemini File Search API는 더 이상 사용하지 않습니다. 현재는 pgvector + Gemini embedding-001을 사용한 커스텀 RAG 구현을 사용합니다. RAG 구현 상세는 `src/lib/rag/` 폴더를 참조하세요.
 
 ---
 

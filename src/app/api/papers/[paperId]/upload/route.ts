@@ -44,7 +44,7 @@ export async function POST(
     // 3. Verify collection ownership
     const { data: collection, error: collectionError } = await supabase
       .from('collections')
-      .select('id, file_search_store_id')
+      .select('id')
       .eq('id', collectionId)
       .eq('user_id', user.id)
       .single();

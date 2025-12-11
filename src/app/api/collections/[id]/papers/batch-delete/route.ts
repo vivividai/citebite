@@ -10,16 +10,10 @@ import { getCollectionWithOwnership } from '@/lib/db/collections';
 import { deleteChunksForPaper } from '@/lib/db/chunks';
 import { deletePdf, pdfExists } from '@/lib/storage/supabaseStorage';
 
-const MAX_BATCH_SIZE = 50;
-
 const batchDeleteSchema = z.object({
   paperIds: z
     .array(z.string().min(1))
-    .min(1, 'At least one paper ID is required')
-    .max(
-      MAX_BATCH_SIZE,
-      `Maximum ${MAX_BATCH_SIZE} papers can be deleted at once`
-    ),
+    .min(1, 'At least one paper ID is required'),
 });
 
 interface RouteParams {

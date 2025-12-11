@@ -6,7 +6,7 @@ type Message = Database['public']['Tables']['messages']['Row'];
 
 export type GeminiModel =
   | 'gemini-2.5-flash'
-  | 'gemini-2.5-pro-preview-05-06'
+  | 'gemini-2.5-pro'
   | 'gemini-3-pro-preview';
 
 export interface SendMessageInput {

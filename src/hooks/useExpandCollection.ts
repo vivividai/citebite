@@ -4,9 +4,11 @@ import toast from 'react-hot-toast';
 export interface ExpandCollectionParams {
   collectionId: string;
   selectedPaperIds: string[];
-  sourcePaperId: string;
+  sourcePaperId?: string; // Optional for auto-expand
+  sourcePaperIds?: Record<string, string>; // For auto-expand: paperId -> sourcePaperId
   sourceTypes: Record<string, 'reference' | 'citation'>;
   similarities?: Record<string, number>;
+  degrees?: Record<string, number>; // For auto-expand: paperId -> degree
 }
 
 interface ExpandCollectionResponse {
@@ -33,8 +35,10 @@ export function useExpandCollection() {
         collectionId,
         selectedPaperIds,
         sourcePaperId,
+        sourcePaperIds,
         sourceTypes,
         similarities,
+        degrees,
       } = params;
 
       const res = await fetch(`/api/collections/${collectionId}/expand`, {
@@ -45,8 +49,10 @@ export function useExpandCollection() {
         body: JSON.stringify({
           selectedPaperIds,
           sourcePaperId,
+          sourcePaperIds,
           sourceTypes,
           similarities,
+          degrees,
         }),
       });
 

@@ -51,6 +51,7 @@ export async function GET(
         source_paper_id,
         relationship_type,
         similarity_score,
+        degree,
         papers!collection_papers_paper_id_fkey (
           paper_id,
           title,
@@ -112,6 +113,7 @@ export async function GET(
         similarity: cp.similarity_score,
         abstract: paper.abstract,
         sourcePaperId: cp.source_paper_id,
+        degree: cp.degree ?? 0,
       });
 
       // Add edge if this paper was expanded from another

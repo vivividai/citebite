@@ -25,6 +25,12 @@ interface PreviewStats {
   rerankingApplied: boolean;
 }
 
+interface DegreeStats {
+  degree1: number;
+  degree2: number;
+  degree3: number;
+}
+
 interface PaperPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -36,6 +42,10 @@ interface PaperPreviewDialogProps {
   onCancel: () => void;
   /** Custom button text for confirm button (default: "컬렉션 생성 (N개)") */
   confirmButtonText?: string;
+  /** Enable degree filter tabs for auto-expand */
+  showDegreeFilter?: boolean;
+  /** Stats for filter badge counts */
+  degreeStats?: DegreeStats;
 }
 
 /**
@@ -51,6 +61,8 @@ export function PaperPreviewDialog({
   onConfirm,
   onCancel,
   confirmButtonText,
+  showDegreeFilter,
+  degreeStats,
 }: PaperPreviewDialogProps) {
   // Threshold state (0-100)
   const [threshold, setThreshold] = useState(50);
@@ -58,18 +70,26 @@ export function PaperPreviewDialog({
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(
     new Set()
   );
+  // Degree filter state
+  const [degreeFilter, setDegreeFilter] = useState<'all' | 1 | 2 | 3>('all');
 
   // Check if any papers have embeddings (for showing/hiding threshold slider)
   const hasEmbeddings = papers.some(p => p.hasEmbedding);
 
+  // Filter papers by degree
+  const filteredByDegree = useMemo(() => {
+    if (degreeFilter === 'all') return papers;
+    return papers.filter(p => p.degree === degreeFilter);
+  }, [papers, degreeFilter]);
+
   // Calculate papers above threshold
   const papersAboveThreshold = useMemo(() => {
-    if (!hasEmbeddings) return papers;
-    return papers.filter(p => {
+    if (!hasEmbeddings) return filteredByDegree;
+    return filteredByDegree.filter(p => {
       if (p.similarity === null) return true; // Papers without embedding are included by default
       return p.similarity * 100 >= threshold;
     });
-  }, [papers, threshold, hasEmbeddings]);
+  }, [filteredByDegree, threshold, hasEmbeddings]);
 
   // Initialize selection when papers change or threshold changes
   useEffect(() => {
@@ -174,6 +194,59 @@ export function PaperPreviewDialog({
             </div>
           )}
 
+          {/* Degree Filter Tabs (for auto-expand) */}
+          {showDegreeFilter && degreeStats && (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={degreeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDegreeFilter('all')}
+              >
+                All ({papers.length})
+              </Button>
+              {degreeStats.degree1 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 1 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(1)}
+                  className={cn(
+                    degreeFilter !== 1 && 'border-green-500/50 text-green-600'
+                  )}
+                >
+                  Degree 1 ({degreeStats.degree1})
+                </Button>
+              )}
+              {degreeStats.degree2 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 2 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(2)}
+                  className={cn(
+                    degreeFilter !== 2 && 'border-blue-500/50 text-blue-600'
+                  )}
+                >
+                  Degree 2 ({degreeStats.degree2})
+                </Button>
+              )}
+              {degreeStats.degree3 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 3 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(3)}
+                  className={cn(
+                    degreeFilter !== 3 && 'border-purple-500/50 text-purple-600'
+                  )}
+                >
+                  Degree 3 ({degreeStats.degree3})
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Selection controls */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
@@ -202,7 +275,7 @@ export function PaperPreviewDialog({
 
           {/* Paper list */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-2 max-h-[350px]">
-            {papers.map(paper => (
+            {filteredByDegree.map(paper => (
               <PaperPreviewCard
                 key={paper.paperId}
                 paper={paper}

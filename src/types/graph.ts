@@ -16,6 +16,7 @@ export interface GraphNode {
   similarity: number | null; // 0-1 cosine similarity for coloring
   abstract: string | null;
   sourcePaperId: string | null; // which paper was expanded to find this one
+  degree: number; // 0=search, 1-3=expansion levels
 }
 
 export interface GraphEdge {

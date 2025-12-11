@@ -3,14 +3,26 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useCollectionGraph } from '@/hooks/useCollectionGraph';
+import { useExpandCollection } from '@/hooks/useExpandCollection';
 import { NodeTooltip } from './NodeTooltip';
 import { PaperDetailPanel } from './PaperDetailPanel';
 import { ExpandCollectionDialog } from '@/components/collections/ExpandCollectionDialog';
+import { AutoExpandDialog } from '@/components/collections/AutoExpandDialog';
+import { PaperPreviewDialog } from '@/components/collections/PaperPreviewDialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, ZoomIn, ZoomOut, Maximize2, Info } from 'lucide-react';
+import {
+  Loader2,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Info,
+  Sparkles,
+} from 'lucide-react';
 import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
+import type { PaperPreview } from '@/lib/search/types';
+import toast from 'react-hot-toast';
 
 // Dynamic import for react-force-graph-2d (SSR not supported)
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -74,6 +86,29 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const [expandDialogOpen, setExpandDialogOpen] = useState(false);
   const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+
+  // Auto-expand state
+  const [autoExpandDialogOpen, setAutoExpandDialogOpen] = useState(false);
+  const [autoExpandPreviewPapers, setAutoExpandPreviewPapers] = useState<
+    PaperPreview[]
+  >([]);
+  const [autoExpandStats, setAutoExpandStats] = useState<{
+    degree1Count: number;
+    degree2Count: number;
+    degree3Count: number;
+    totalCount: number;
+  } | null>(null);
+  const [showAutoExpandPreview, setShowAutoExpandPreview] = useState(false);
+
+  // Calculate search node count from graph data
+  const searchNodeCount = useMemo(
+    () => graphData?.nodes.filter(n => n.degree === 0).length ?? 0,
+    [graphData]
+  );
+
+  // Expand collection mutation
+  const { mutate: expandCollection, isPending: isExpanding } =
+    useExpandCollection();
 
   // Update dimensions on resize using ResizeObserver for accurate sizing
   useEffect(() => {
@@ -349,6 +384,69 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const handleZoomOut = () => graphRef.current?.zoom(0.67, 400);
   const handleFitView = () => graphRef.current?.zoomToFit(400, 50);
 
+  // Handle auto-expand preview ready
+  const handleAutoExpandPreviewReady = useCallback(
+    (
+      papers: PaperPreview[],
+      stats: {
+        degree1Count: number;
+        degree2Count: number;
+        degree3Count: number;
+        totalCount: number;
+      }
+    ) => {
+      setAutoExpandPreviewPapers(papers);
+      setAutoExpandStats(stats);
+      setAutoExpandDialogOpen(false);
+      setShowAutoExpandPreview(true);
+    },
+    []
+  );
+
+  // Handle auto-expand confirm
+  const handleAutoExpandConfirm = useCallback(
+    (selectedPaperIds: string[]) => {
+      // Build sourcePaperIds, sourceTypes, and degrees maps
+      const sourcePaperIds: Record<string, string> = {};
+      const sourceTypes: Record<string, 'reference' | 'citation'> = {};
+      const degrees: Record<string, number> = {};
+
+      for (const paperId of selectedPaperIds) {
+        const paper = autoExpandPreviewPapers.find(p => p.paperId === paperId);
+        if (paper) {
+          sourcePaperIds[paperId] = paper.sourcePaperId || '';
+          sourceTypes[paperId] = paper.sourceType || 'reference';
+          degrees[paperId] = paper.degree || 1;
+        }
+      }
+
+      expandCollection(
+        {
+          collectionId,
+          selectedPaperIds,
+          sourcePaperIds,
+          sourceTypes,
+          degrees,
+        },
+        {
+          onSuccess: () => {
+            setShowAutoExpandPreview(false);
+            setAutoExpandPreviewPapers([]);
+            setAutoExpandStats(null);
+          },
+          onError: error => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : 'Failed to add papers to collection'
+            );
+          },
+        }
+      );
+    },
+    [autoExpandPreviewPapers, collectionId, expandCollection]
+  );
+
   // Loading state
   if (isLoading) {
     return (
@@ -410,6 +508,19 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
             <span className="text-lg leading-none">×</span>
             <span>No PDF</span>
           </div>
+        </div>
+        {/* Auto Expand Button */}
+        <div className="mt-3 pt-3 border-t">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => setAutoExpandDialogOpen(true)}
+            disabled={searchNodeCount === 0}
+          >
+            <Sparkles className="h-4 w-4 mr-1" />
+            Auto Expand
+          </Button>
         </div>
       </div>
 
@@ -477,6 +588,50 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           collectionId={collectionId}
           paperId={expandPaper.id}
           paperTitle={expandPaper.title}
+        />
+      )}
+
+      {/* Auto Expand dialog */}
+      <AutoExpandDialog
+        open={autoExpandDialogOpen}
+        onOpenChange={setAutoExpandDialogOpen}
+        collectionId={collectionId}
+        searchNodeCount={searchNodeCount}
+        onPreviewReady={handleAutoExpandPreviewReady}
+      />
+
+      {/* Auto Expand Preview dialog */}
+      {showAutoExpandPreview && autoExpandStats && (
+        <PaperPreviewDialog
+          open={showAutoExpandPreview}
+          onOpenChange={setShowAutoExpandPreview}
+          papers={autoExpandPreviewPapers}
+          stats={{
+            totalPapers: autoExpandStats.totalCount,
+            openAccessPapers: autoExpandPreviewPapers.filter(
+              p => p.isOpenAccess
+            ).length,
+            paywalledPapers: autoExpandPreviewPapers.filter(
+              p => !p.isOpenAccess
+            ).length,
+            papersWithEmbeddings: 0,
+            rerankingApplied: false,
+          }}
+          searchQuery="Auto Expand"
+          isCreating={isExpanding}
+          onConfirm={handleAutoExpandConfirm}
+          onCancel={() => {
+            setShowAutoExpandPreview(false);
+            setAutoExpandPreviewPapers([]);
+            setAutoExpandStats(null);
+          }}
+          confirmButtonText={`Add to Collection`}
+          showDegreeFilter={true}
+          degreeStats={{
+            degree1: autoExpandStats.degree1Count,
+            degree2: autoExpandStats.degree2Count,
+            degree3: autoExpandStats.degree3Count,
+          }}
         />
       )}
     </Card>

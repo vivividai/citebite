@@ -17,10 +17,14 @@ export const expandCollectionSchema = z.object({
   selectedPaperIds: z
     .array(z.string())
     .min(1, 'At least one paper must be selected'),
-  sourcePaperId: z.string().min(1, 'Source paper ID is required'),
+  sourcePaperId: z.string().optional(), // Optional for auto-expand
+  // Per-paper source mapping (paperId -> sourcePaperId) - for auto-expand
+  sourcePaperIds: z.record(z.string(), z.string()).optional(),
   // Per-paper relationship types (paperId -> 'reference' | 'citation')
   sourceTypes: z.record(z.string(), z.enum(['reference', 'citation'])),
   similarities: z.record(z.string(), z.number()).optional(),
+  // Per-paper degree mapping (paperId -> degree) - for auto-expand
+  degrees: z.record(z.string(), z.number()).optional(),
 });
 
 export type ExpandPreviewInput = z.infer<typeof expandPreviewSchema>;

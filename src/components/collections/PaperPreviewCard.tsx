@@ -83,7 +83,7 @@ export function PaperPreviewCard({
           className="max-w-xs"
         />
 
-        {/* Footer: Citations, Open Access badge */}
+        {/* Footer: Citations, Open Access badge, Degree badge */}
         <div className="flex items-center gap-3 pt-0.5">
           {paper.citationCount !== null && paper.citationCount > 0 && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -98,6 +98,19 @@ export function PaperPreviewCard({
             >
               <Unlock className="h-2.5 w-2.5" />
               Open Access
+            </Badge>
+          )}
+          {paper.degree && (
+            <Badge
+              variant="outline"
+              className={cn(
+                'h-5 px-1.5 text-[10px] font-normal',
+                paper.degree === 1 && 'border-green-500 text-green-600',
+                paper.degree === 2 && 'border-blue-500 text-blue-600',
+                paper.degree === 3 && 'border-purple-500 text-purple-600'
+              )}
+            >
+              Degree {paper.degree}
             </Badge>
           )}
         </div>

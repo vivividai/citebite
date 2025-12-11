@@ -48,8 +48,14 @@ export async function POST(
       );
     }
 
-    const { selectedPaperIds, sourcePaperId, sourceTypes, similarities } =
-      result.data;
+    const {
+      selectedPaperIds,
+      sourcePaperId,
+      sourcePaperIds,
+      sourceTypes,
+      similarities,
+      degrees,
+    } = result.data;
 
     // 2. Authenticate user
     const supabase = await createServerSupabaseClient();
@@ -122,9 +128,10 @@ export async function POST(
     // 7. Link papers to collection with relationship data
     const paperLinkData = upsertedPaperIds.map(paperId => ({
       paperId,
-      sourcePaperId,
+      sourcePaperId: sourcePaperIds?.[paperId] ?? sourcePaperId ?? null, // Support both
       relationshipType: sourceTypes[paperId] ?? 'reference',
       similarityScore: similarities?.[paperId] ?? null,
+      degree: degrees?.[paperId] ?? 1, // Default to 1 for expand
     }));
     await linkPapersToCollection(supabase, params.id, paperLinkData);
 

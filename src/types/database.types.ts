@@ -84,6 +84,7 @@ export type Database = {
       collection_papers: {
         Row: {
           collection_id: string;
+          degree: number | null;
           paper_id: string;
           relationship_type: string | null;
           similarity_score: number | null;
@@ -91,6 +92,7 @@ export type Database = {
         };
         Insert: {
           collection_id: string;
+          degree?: number | null;
           paper_id: string;
           relationship_type?: string | null;
           similarity_score?: number | null;
@@ -98,6 +100,7 @@ export type Database = {
         };
         Update: {
           collection_id?: string;
+          degree?: number | null;
           paper_id?: string;
           relationship_type?: string | null;
           similarity_score?: number | null;

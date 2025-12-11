@@ -34,6 +34,7 @@ export interface PaperLinkData {
   sourcePaperId?: string | null;
   relationshipType?: RelationshipType;
   similarityScore?: number | null;
+  degree?: number; // 0=search, 1-3=expansion levels
 }
 
 /**
@@ -59,6 +60,7 @@ export async function linkPapersToCollection(
     source_paper_id: paper.sourcePaperId ?? null,
     relationship_type: paper.relationshipType ?? 'search',
     similarity_score: paper.similarityScore ?? null,
+    degree: paper.degree ?? 0,
   }));
 
   const { error } = await supabase

@@ -47,7 +47,6 @@ const connection = new Redis(process.env.REDIS_URL);
 
 export const pdfDownloadQueue = new Queue('pdf-download', { connection });
 export const pdfIndexQueue = new Queue('pdf-index', { connection });
-export const insightQueue = new Queue('insight-generation', { connection });
 ```
 
 **Worker 정의:**
@@ -159,34 +158,6 @@ pdfIndexWorker.on('completed', async job => {
     .update({ vector_status: 'completed' })
     .eq('paper_id', job.data.paperId);
 });
-```
-
-**인사이트 생성 Worker:**
-
-```typescript
-// lib/jobs/workers/insightWorker.ts
-import { Worker } from 'bullmq';
-
-const insightWorker = new Worker(
-  'insight-generation',
-  async job => {
-    const { collectionId } = job.data;
-
-    const insights = await generateInsights(collectionId); // 앞서 정의한 함수
-
-    const supabase = createServerSupabaseClient();
-    await supabase
-      .from('collections')
-      .update({ insight_summary: insights })
-      .eq('id', collectionId);
-
-    return { success: true };
-  },
-  {
-    connection,
-    concurrency: 1, // 리소스 집약적
-  }
-);
 ```
 
 ---
@@ -352,15 +323,13 @@ restartPolicyType = "always"
 workers/
 ├── index.ts              # 모든 Worker 시작
 ├── pdfDownloadWorker.ts
-├── pdfIndexWorker.ts
-└── insightWorker.ts
+└── pdfIndexWorker.ts
 ```
 
 ```typescript
 // workers/index.ts
 import './pdfDownloadWorker';
 import './pdfIndexWorker';
-import './insightWorker';
 
 console.log('All workers started');
 ```

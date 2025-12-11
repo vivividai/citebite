@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**CiteBite** is an AI-powered research assistant that enables researchers to automatically collect papers on specific topics, chat with them using RAG (Retrieval-Augmented Generation), and generate insights about research trends.
+**CiteBite** is an AI-powered research assistant that enables researchers to automatically collect papers on specific topics and chat with them using RAG (Retrieval-Augmented Generation).
 
 ### Core Value Proposition
 
@@ -12,7 +12,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Manual PDF upload support for non-Open Access papers
 - Citation-backed AI conversations with proper source attribution
 - Persistent conversation history across sessions
-- Automatic insight generation (research trends, top papers, gaps)
 - Public collection sharing for community collaboration
 
 ### Target Users
@@ -198,7 +197,6 @@ citebite/
 - RAG-based chat with citation tracking
 - Conversation history (save and resume)
 - Collection updates (check for new papers)
-- Auto-generated insights (trends, top papers, gaps)
 - Public collection sharing
 
 **Excluded Features (Post-MVP):**
@@ -234,7 +232,7 @@ citebite/
 
 **Don't process PDFs synchronously** - Always use background jobs (BullMQ)
 
-- Handle PDF downloads, indexing, and insight generation with BullMQ
+- Handle PDF downloads and indexing with BullMQ
 - Minimize user wait time with progress indicators in UI
 - Provide retry logic and clear error messages on failure
 
@@ -345,16 +343,15 @@ The agent will:
 
 ## Development Roadmap
 
-The project is divided into 8 phases (10-12 weeks total):
+The project is divided into 7 phases:
 
-**Phase 1 (2-3 weeks):** Core foundation - Supabase setup (Auth, DB, Storage), Semantic Scholar integration, pgvector RAG setup, PDF download pipeline
-**Phase 2 (2 weeks):** RAG pipeline and chat UI with citations
-**Phase 3 (1 week):** Manual PDF upload for non-Open Access papers
-**Phase 4 (1 week):** Conversation history and persistence
-**Phase 5 (1 week):** Collection update with new papers
-**Phase 6 (1-2 weeks):** Automatic insights dashboard
-**Phase 7 (1 week):** Public collection sharing
-**Phase 8 (1 week):** UX polish, testing, bug fixes
+**Phase 1:** Core foundation - Supabase setup (Auth, DB, Storage), Semantic Scholar integration, pgvector RAG setup, PDF download pipeline
+**Phase 2:** RAG pipeline and chat UI with citations
+**Phase 3:** Manual PDF upload for non-Open Access papers
+**Phase 4:** Conversation history and persistence
+**Phase 5:** Collection update with new papers
+**Phase 6:** Public collection sharing
+**Phase 7:** UX polish, testing, bug fixes
 
 For detailed implementation checklist with ~110 testable tasks, E2E test checkpoints, and completion criteria for each phase, see **[ROADMAP.md](./docs/ROADMAP.md)**.
 
@@ -366,7 +363,6 @@ For detailed implementation checklist with ~110 testable tasks, E2E test checkpo
 2. **Don't forget conversation context** - Include last 5-10 messages in LLM prompt to maintain conversation continuity
 3. **Don't hard-delete conversations or collections** - Implement soft delete with recovery option
 4. **Don't skip deduplication** - Same paper can appear in multiple collections (check duplicates by Semantic Scholar paper ID)
-5. **Don't overload insights** - Keep summaries concise (3-5 bullet points per section)
 
 For more implementation details and best practices, see [OVERVIEW.md](./docs/planning/OVERVIEW.md).
 

@@ -101,14 +101,6 @@ export interface Collection {
   name: string;
   papers: Paper[];
   conversations: Conversation[];
-  insightSummary: InsightSummary;
-}
-
-export interface InsightSummary {
-  topPapers: TopPaper[];
-  researchTrends: ResearchTrend[];
-  recentTrends: string[];
-  researchGaps: string;
 }
 ```
 

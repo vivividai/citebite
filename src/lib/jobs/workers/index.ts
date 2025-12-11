@@ -8,7 +8,6 @@ import {
   stopPdfDownloadWorker,
 } from './pdfDownloadWorker';
 import { startPdfIndexWorker, stopPdfIndexWorker } from './pdfIndexWorker';
-import { startInsightWorker, stopInsightWorker } from './insightWorker';
 import {
   startBulkUploadCleanupWorker,
   stopBulkUploadCleanupWorker,
@@ -24,7 +23,6 @@ export async function startAllWorkers(): Promise<void> {
 
   startPdfDownloadWorker();
   startPdfIndexWorker();
-  startInsightWorker();
   startBulkUploadCleanupWorker();
 
   // Schedule recurring cleanup job for bulk upload sessions
@@ -43,7 +41,6 @@ export async function stopAllWorkers(): Promise<void> {
   await Promise.all([
     stopPdfDownloadWorker(),
     stopPdfIndexWorker(),
-    stopInsightWorker(),
     stopBulkUploadCleanupWorker(),
   ]);
 

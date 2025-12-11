@@ -66,7 +66,7 @@ E2E tests now include **automated global setup and teardown** to ensure a clean 
 
 - ✅ Verifies required environment variables
 - ✅ Resets Supabase database to clean state (`npx supabase db reset`)
-- ✅ Clears all Redis queues (pdf-download, pdf-indexing, insight-generation)
+- ✅ Clears all Redis queues (pdf-download, pdf-indexing)
 - ✅ Sets `TEST_PAPER_LIMIT=10` (limits paper count for fast tests)
 
 **Global Teardown (`tests/e2e/global-teardown.ts`)** runs once after all tests:

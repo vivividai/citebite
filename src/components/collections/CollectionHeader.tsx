@@ -94,7 +94,6 @@ export function CollectionHeader({ collection }: CollectionHeaderProps) {
                 <ul className="list-disc list-inside mt-2 space-y-1">
                   <li>{collection.totalPapers} papers</li>
                   <li>All conversations and messages</li>
-                  <li>All insights</li>
                 </ul>
                 This action cannot be undone.
               </AlertDialogDescription>

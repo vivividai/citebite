@@ -408,9 +408,7 @@ test.describe('Collection Management', () => {
       await expect(date).toBeVisible();
     });
 
-    test('should display three tabs: Papers, Chat, Insights', async ({
-      page,
-    }) => {
+    test('should display two tabs: Papers and Chat', async ({ page }) => {
       const testCollectionId = 'test-collection-id';
       await page.goto(`http://localhost:3000/collections/${testCollectionId}`);
 
@@ -419,11 +417,9 @@ test.describe('Collection Management', () => {
       // Check for tabs
       const papersTab = page.getByRole('tab', { name: /papers/i });
       const chatTab = page.getByRole('tab', { name: /chat/i });
-      const insightsTab = page.getByRole('tab', { name: /insights/i });
 
       await expect(papersTab).toBeVisible();
       await expect(chatTab).toBeVisible();
-      await expect(insightsTab).toBeVisible();
     });
 
     test('should switch tabs without page reload', async ({ page }) => {

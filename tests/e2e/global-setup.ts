@@ -20,7 +20,6 @@ async function clearRedisQueues() {
   const queues = [
     new Queue('pdf-download', { connection }),
     new Queue('pdf-indexing', { connection }),
-    new Queue('insight-generation', { connection }),
   ];
 
   for (const queue of queues) {

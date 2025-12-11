@@ -1,6 +1,6 @@
 /**
  * BullMQ Queue Definitions
- * Manages background job queues for PDF processing and insight generation
+ * Manages background job queues for PDF processing
  */
 
 import { Queue } from 'bullmq';
@@ -19,10 +19,6 @@ export interface PdfIndexJobData {
   storageKey: string; // Key in Supabase Storage
 }
 
-export interface InsightGenerationJobData {
-  collectionId: string;
-}
-
 export interface BulkUploadCleanupJobData {
   sessionId?: string;
   userId?: string;
@@ -31,7 +27,6 @@ export interface BulkUploadCleanupJobData {
 // Queue instances (singleton pattern)
 let pdfDownloadQueue: Queue<PdfDownloadJobData> | null = null;
 let pdfIndexQueue: Queue<PdfIndexJobData> | null = null;
-let insightQueue: Queue<InsightGenerationJobData> | null = null;
 let bulkUploadCleanupQueue: Queue<BulkUploadCleanupJobData> | null = null;
 
 /**
@@ -113,45 +108,6 @@ export function getPdfIndexQueue(): Queue<PdfIndexJobData> | null {
 }
 
 /**
- * Get or create Insight Generation Queue
- */
-export function getInsightQueue(): Queue<InsightGenerationJobData> | null {
-  if (!process.env.REDIS_URL) {
-    console.warn('REDIS_URL not configured. Background jobs are disabled.');
-    return null;
-  }
-
-  if (insightQueue) {
-    return insightQueue;
-  }
-
-  const connection = getRedisClient();
-  if (!connection) {
-    return null;
-  }
-
-  insightQueue = new Queue<InsightGenerationJobData>('insight-generation', {
-    connection,
-    defaultJobOptions: {
-      attempts: 2, // Fewer retries for expensive operations
-      backoff: {
-        type: 'exponential',
-        delay: 10000, // Start with 10 second delay
-      },
-      removeOnComplete: {
-        age: 24 * 3600,
-        count: 100,
-      },
-      removeOnFail: {
-        age: 7 * 24 * 3600,
-      },
-    },
-  });
-
-  return insightQueue;
-}
-
-/**
  * Get or create Bulk Upload Cleanup Queue
  */
 export function getBulkUploadCleanupQueue(): Queue<BulkUploadCleanupJobData> | null {
@@ -197,12 +153,7 @@ export function getBulkUploadCleanupQueue(): Queue<BulkUploadCleanupJobData> | n
  * Close all queue connections (use on app shutdown)
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [
-    pdfDownloadQueue,
-    pdfIndexQueue,
-    insightQueue,
-    bulkUploadCleanupQueue,
-  ];
+  const queues = [pdfDownloadQueue, pdfIndexQueue, bulkUploadCleanupQueue];
 
   for (const queue of queues) {
     if (queue) {
@@ -212,7 +163,6 @@ export async function closeQueues(): Promise<void> {
 
   pdfDownloadQueue = null;
   pdfIndexQueue = null;
-  insightQueue = null;
   bulkUploadCleanupQueue = null;
 }
 
@@ -254,27 +204,6 @@ export async function queuePdfIndexing(
     return job.id ?? null;
   } catch (error) {
     console.error('Failed to queue PDF indexing job:', error);
-    return null;
-  }
-}
-
-/**
- * Helper function to add an insight generation job
- */
-export async function queueInsightGeneration(
-  data: InsightGenerationJobData
-): Promise<string | null> {
-  const queue = getInsightQueue();
-  if (!queue) {
-    console.error('Insight generation queue not available');
-    return null;
-  }
-
-  try {
-    const job = await queue.add('generate-insights', data);
-    return job.id ?? null;
-  } catch (error) {
-    console.error('Failed to queue insight generation job:', error);
     return null;
   }
 }

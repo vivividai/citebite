@@ -750,7 +750,6 @@ START
   createdAt: timestamp
   lastUpdatedAt: timestamp
   paperCount: number
-  insightSummary: object // 자동 생성 인사이트
 }
 ```
 
@@ -1003,29 +1002,11 @@ START
 - [ ] 신규 논문 미리보기 UI
 - [ ] 선택적 추가 기능
 - [ ] 업데이트 히스토리 기록
-- [ ] 업데이트 후 인사이트 재생성
-
-**완료 기준**: 사용자가 버튼 클릭 시 신규 논문이 발견되고 선택적으로 추가 가능
+      **완료 기준**: 사용자가 버튼 클릭 시 신규 논문이 발견되고 선택적으로 추가 가능
 
 ---
 
-### Phase 6: Insights Dashboard (1-2주)
-
-**목표**: 자동 인사이트 생성
-
-- [ ] 논문 클러스터링 또는 LLM 분석
-- [ ] 주요 연구 흐름 추출
-- [ ] Top 논문 정리
-- [ ] 최근 트렌드 분석
-- [ ] 갭 분석 (놓칠 수 있는 연구 방향)
-- [ ] 인사이트 UI 구현
-- [ ] 제안 질문 생성
-
-**완료 기준**: 컬렉션 생성 완료 시 자동으로 인사이트가 생성되어 표시됨
-
----
-
-### Phase 7: Public Collections (1주)
+### Phase 6: Public Collections
 
 **목표**: 컬렉션 공유 기능
 
@@ -1039,7 +1020,7 @@ START
 
 ---
 
-### Phase 8: Polish & Testing (1주)
+### Phase 7: Polish & Testing
 
 **목표**: UX 개선 및 버그 수정
 
@@ -1055,7 +1036,7 @@ START
 
 ---
 
-### 총 개발 기간: 10-12주
+### 총 개발 기간: 7 Phases
 
 ---
 

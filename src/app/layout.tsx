@@ -19,7 +19,7 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: 'CiteBite - AI-Powered Research Assistant',
   description:
-    'Chat with research papers using RAG and AI. Automatically collect papers, get insights, and explore research trends.',
+    'Chat with research papers using RAG and AI. Automatically collect papers and get citation-backed answers.',
 };
 
 export default async function RootLayout({

@@ -44,9 +44,7 @@ test.describe('UI/UX Validation', () => {
       await expect(loginLink).toBeVisible();
 
       // Verify feature cards or descriptions
-      const featureSection = page
-        .locator('text=/collections|chat|insights/i')
-        .first();
+      const featureSection = page.locator('text=/collections|chat/i').first();
       await expect(featureSection).toBeVisible();
     });
 

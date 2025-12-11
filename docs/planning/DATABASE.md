@@ -25,7 +25,7 @@
 - **관계형**: 복잡한 조인 쿼리 지원 (컬렉션-논문 다대다 관계)
 - **ACID**: 트랜잭션 보장 (컬렉션 복사 시 무결성)
 - **Full-Text Search**: 대화 검색, 컬렉션 검색
-- **JSON 지원**: insightSummary 같은 비정형 데이터 저장
+- **JSON 지원**: filters 같은 비정형 데이터 저장
 - **확장성**: Read Replica, Connection Pooling
 
 ---
@@ -50,7 +50,6 @@ CREATE TABLE collections (
   filters JSONB,
   is_public BOOLEAN DEFAULT FALSE,
   -- Note: file_search_store_id 컬럼은 더 이상 사용하지 않음 (pgvector로 전환)
-  insight_summary JSONB,
   created_at TIMESTAMP DEFAULT NOW(),
   last_updated_at TIMESTAMP DEFAULT NOW(),
   copy_count INT DEFAULT 0
@@ -175,7 +174,6 @@ CREATE TABLE collections (
   filters JSONB,
   is_public BOOLEAN DEFAULT FALSE,
   file_search_store_id VARCHAR(255),
-  insight_summary JSONB,
   created_at TIMESTAMP DEFAULT NOW(),
   last_updated_at TIMESTAMP DEFAULT NOW(),
   copy_count INT DEFAULT 0

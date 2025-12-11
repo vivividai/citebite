@@ -5,7 +5,7 @@ import { CollectionHeader } from '@/components/collections/CollectionHeader';
 import { PaperList } from '@/components/collections/PaperList';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, AlertCircle, MessageSquare, Lightbulb } from 'lucide-react';
+import { Loader2, AlertCircle, MessageSquare } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 export default function CollectionDetailPage() {
@@ -84,10 +84,6 @@ export default function CollectionDetailPage() {
             <MessageSquare className="h-4 w-4" />
             Chat
           </TabsTrigger>
-          <TabsTrigger value="insights" className="gap-2">
-            <Lightbulb className="h-4 w-4" />
-            Insights
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="papers" className="space-y-4">
@@ -96,18 +92,6 @@ export default function CollectionDetailPage() {
 
         <TabsContent value="chat" className="space-y-4">
           <ChatInterface collectionId={collection.id} />
-        </TabsContent>
-
-        <TabsContent value="insights" className="space-y-4">
-          <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <Lightbulb className="h-12 w-12 text-muted-foreground" />
-            <div className="text-center">
-              <h3 className="text-lg font-semibold">Insights Coming Soon</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Auto-generated insights will be available in Phase 6
-              </p>
-            </div>
-          </div>
         </TabsContent>
       </Tabs>
     </div>

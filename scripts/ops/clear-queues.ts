@@ -14,7 +14,6 @@ async function clearAllQueues() {
   const queues = [
     new Queue('pdf-download', { connection }),
     new Queue('pdf-indexing', { connection }),
-    new Queue('insight-generation', { connection }),
   ];
 
   console.log('🧹 Clearing all queues...\n');

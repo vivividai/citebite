@@ -14,7 +14,6 @@ async function checkAllQueues() {
   const queues = [
     new Queue('pdf-download', { connection }),
     new Queue('pdf-indexing', { connection }),
-    new Queue('insight-generation', { connection }),
   ];
 
   console.log('📊 BullMQ Queue Status\n');

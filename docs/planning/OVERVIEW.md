@@ -367,9 +367,6 @@ async function addPapersToCollection(req: Request) {
   // 2. PDF 다운로드 큐잉
   await pdfDownloadQueue.addBulk(/* ... */);
 
-  // 3. 인사이트 재생성 큐잉
-  await insightQueue.add('generate-insights', { collectionId: id });
-
   return { success: true, addedCount: paperIds.length };
 }
 ```
@@ -482,81 +479,7 @@ async function sendMessage(req: Request) {
 
 ---
 
-### 3.4 인사이트 생성
-
-| 기능 요소      | 기술 스택         | 상세 역할                    |
-| -------------- | ----------------- | ---------------------------- |
-| 주요 연구 흐름 | Gemini API (LLM)  | 논문 초록 분석 → 클러스터링  |
-| Top 논문 추출  | PostgreSQL Query  | citationCount 기준 정렬      |
-| 최근 트렌드    | Gemini API        | 최근 1년 논문 키워드 분석    |
-| 연구 갭 분석   | Gemini API        | "덜 연구된 영역" 식별        |
-| 인사이트 저장  | PostgreSQL (JSON) | Collection.insightSummary    |
-| 인사이트 UI    | React             | 카드 형태, 클릭 시 논문 이동 |
-
-**구현 상세:**
-
-```typescript
-// Background Job: generate-insights
-async function generateInsights(collectionId: string) {
-  // 1. 컬렉션 논문 조회
-  const { data: papers } = await supabase
-    .from('papers')
-    .select('*')
-    .eq('collection_id', collectionId)
-    .order('citation_count', { ascending: false });
-
-  // 2. Top 논문 (간단)
-  const topPapers = papers.slice(0, 5).map(p => ({
-    title: p.title,
-    authors: p.authors,
-    year: p.year,
-    citationCount: p.citationCount,
-    summary: p.abstract.slice(0, 200) + '...',
-  }));
-
-  // 3. LLM 기반 분석
-  const abstracts = papers.map(p => `${p.title}\n${p.abstract}`).join('\n\n');
-
-  const prompt = `
-다음은 특정 연구 주제의 논문 초록 모음입니다:
-
-${abstracts}
-
-다음을 분석하여 JSON으로 반환하세요:
-1. 주요 연구 흐름 3-5개 (각 흐름의 이름, 설명, 대표 논문 제목)
-2. 최근 1년간 트렌드 변화 (키워드, 새로운 방향성)
-3. 상대적으로 덜 연구된 영역 (연구 갭)
-
-JSON 형식:
-{
-  "researchTrends": [
-    { "name": "...", "description": "...", "papers": ["...", "..."] }
-  ],
-  "recentTrends": ["...", "...", "..."],
-  "researchGaps": "..."
-}
-  `;
-
-  const response = await geminiService.generateContent(prompt);
-  const analysis = JSON.parse(response.text);
-
-  // 4. 인사이트 저장
-  await supabase
-    .from('collections')
-    .update({
-      insight_summary: {
-        topPapers,
-        ...analysis,
-        generatedAt: new Date().toISOString(),
-      },
-    },
-  });
-}
-```
-
----
-
-### 3.5 공개 컬렉션
+### 3.4 공개 컬렉션
 
 | 기능 요소   | 기술 스택               | 상세 역할                         |
 | ----------- | ----------------------- | --------------------------------- |
@@ -592,7 +515,6 @@ async function copyCollection(req: Request) {
       search_query: original.search_query,
       filters: original.filters,
       is_public: false,
-      insight_summary: original.insight_summary,
     })
     .select()
     .single();

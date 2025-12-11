@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, BookOpen, MessageSquare, TrendingUp } from 'lucide-react';
+import { ArrowRight, BookOpen, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -54,7 +54,7 @@ export default async function Home() {
 
       {/* Features Section */}
       <section className="py-16">
-        <div className="grid gap-8 md:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2 max-w-4xl mx-auto">
           <Card>
             <CardHeader>
               <BookOpen className="h-12 w-12 mb-4 text-primary" />
@@ -87,24 +87,6 @@ export default async function Home() {
                 <li>Natural language Q&A</li>
                 <li>Citation tracking</li>
                 <li>Conversation history</li>
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <TrendingUp className="h-12 w-12 mb-4 text-primary" />
-              <CardTitle>Discover Insights</CardTitle>
-              <CardDescription>
-                Automatically generated insights about research trends, top
-                papers, and knowledge gaps.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-                <li>Research trend analysis</li>
-                <li>Top cited papers</li>
-                <li>Knowledge gap detection</li>
               </ul>
             </CardContent>
           </Card>

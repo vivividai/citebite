@@ -19,12 +19,16 @@ import {
   ExternalLink,
   GitBranch,
   ArrowRight,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 
 interface PaperDetailPanelProps {
   node: GraphNode | null;
   onClose: () => void;
   onExpand?: (paperId: string) => void;
+  onRemove?: (paperId: string) => void;
+  isRemoving?: boolean;
 }
 
 /**
@@ -34,6 +38,8 @@ export function PaperDetailPanel({
   node,
   onClose,
   onExpand,
+  onRemove,
+  isRemoving,
 }: PaperDetailPanelProps) {
   const [isAbstractExpanded, setIsAbstractExpanded] = useState(false);
 
@@ -185,6 +191,23 @@ export function PaperDetailPanel({
                   <GitBranch className="h-4 w-4 mr-2" />
                   Expand from this paper
                   <ArrowRight className="h-4 w-4 ml-auto" />
+                </Button>
+              )}
+
+              {/* Remove button */}
+              {onRemove && (
+                <Button
+                  variant="outline"
+                  className="justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => onRemove(node.id)}
+                  disabled={isRemoving}
+                >
+                  {isRemoving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Remove from collection
                 </Button>
               )}
             </div>

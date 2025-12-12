@@ -8,6 +8,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { autoExpandPreviewSchema } from '@/lib/validations/auto-expand';
 import { getCollectionWithOwnership } from '@/lib/db/collections';
 import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
+import { generateQueryEmbedding } from '@/lib/semantic-scholar/specter-client';
+import { expandQueryForReranking } from '@/lib/gemini/query-expand';
+import { cosineSimilarity } from '@/lib/utils/vector';
 import type { Paper } from '@/lib/semantic-scholar/types';
 import type { PaperPreview } from '@/lib/search/types';
 
@@ -27,6 +30,8 @@ interface AutoExpandPreviewResponse {
       degree2Count: number;
       degree3Count: number;
       totalCount: number;
+      papersWithEmbeddings: number;
+      rerankingApplied: boolean;
     };
   };
 }
@@ -111,8 +116,23 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 3. Verify collection ownership
-    await getCollectionWithOwnership(supabase, params.id, user.id);
+    // 3. Verify collection ownership and get search query
+    const collection = await getCollectionWithOwnership(
+      supabase,
+      params.id,
+      user.id
+    );
+
+    // Get the original search query for similarity comparison
+    const originalQuery =
+      collection.natural_language_query || collection.search_query || '';
+
+    if (!originalQuery) {
+      return NextResponse.json(
+        { error: 'Collection has no search query for similarity comparison' },
+        { status: 400 }
+      );
+    }
 
     // 4. Get existing papers with their degrees
     const { data: existingPapers, error: papersError } = await supabase
@@ -149,6 +169,8 @@ export async function POST(
       degree2Count: 0,
       degree3Count: 0,
       totalCount: 0,
+      papersWithEmbeddings: 0,
+      rerankingApplied: false,
     };
 
     console.log(
@@ -232,11 +254,9 @@ export async function POST(
         degreeResults.push(...papers);
       }
 
-      // Add discovered papers to the degree map for next iteration
-      papersByDegree.set(
-        currentDegree,
-        degreeResults.map(p => p.paperId)
-      );
+      // Note: We do NOT add discovered papers to papersByDegree
+      // Only papers already in the DB (collection) are used as sources for expansion
+      // This prevents exponential growth of API calls
       allDiscoveredPapers.push(...degreeResults);
 
       // Update stats
@@ -255,14 +275,73 @@ export async function POST(
       `[AutoExpand] Preview complete: ${allDiscoveredPapers.length} total papers`
     );
 
-    // 8. Optionally fetch embeddings and re-rank by similarity
-    // For now, skip re-ranking to keep it faster - can be added later
-    // The papers are already sorted by citation count from Semantic Scholar
+    // 8. Fetch embeddings and calculate similarity to original query
+    if (allDiscoveredPapers.length > 0) {
+      console.log(
+        `[AutoExpand] Generating query embedding and fetching paper embeddings...`
+      );
 
-    // Sort by citation count descending as a simple ranking
-    allDiscoveredPapers.sort(
-      (a, b) => (b.citationCount || 0) - (a.citationCount || 0)
-    );
+      // Expand query for better SPECTER embedding similarity
+      const { expandedQuery } = await expandQueryForReranking(originalQuery);
+
+      // Generate query embedding and fetch paper embeddings in parallel
+      const paperIds = allDiscoveredPapers.map(p => p.paperId);
+
+      const [queryEmbedding, papersWithEmbeddings] = await Promise.all([
+        generateQueryEmbedding(expandedQuery),
+        client.getPapersBatchParallel(paperIds, { includeEmbedding: true }),
+      ]);
+
+      if (queryEmbedding) {
+        // Create a map of paperId -> embedding for quick lookup
+        const embeddingMap = new Map<string, number[]>();
+        for (const paper of papersWithEmbeddings) {
+          if (paper?.paperId && paper.embedding?.vector) {
+            embeddingMap.set(paper.paperId, paper.embedding.vector);
+          }
+        }
+
+        stats.papersWithEmbeddings = embeddingMap.size;
+        console.log(
+          `[AutoExpand] Found ${embeddingMap.size}/${allDiscoveredPapers.length} papers with embeddings`
+        );
+
+        // Calculate similarity for each paper
+        for (const paper of allDiscoveredPapers) {
+          const paperEmbedding = embeddingMap.get(paper.paperId);
+          if (paperEmbedding) {
+            paper.similarity = cosineSimilarity(queryEmbedding, paperEmbedding);
+            paper.hasEmbedding = true;
+          }
+        }
+
+        // Sort by similarity (papers with embeddings first, by similarity desc)
+        // Then papers without embeddings sorted by citation count
+        allDiscoveredPapers.sort((a, b) => {
+          // Both have similarity: sort by similarity desc
+          if (a.similarity !== null && b.similarity !== null) {
+            return b.similarity - a.similarity;
+          }
+          // Only a has similarity: a comes first
+          if (a.similarity !== null) return -1;
+          // Only b has similarity: b comes first
+          if (b.similarity !== null) return 1;
+          // Neither has similarity: sort by citation count desc
+          return (b.citationCount || 0) - (a.citationCount || 0);
+        });
+
+        stats.rerankingApplied = true;
+        console.log(`[AutoExpand] Re-ranking by similarity completed`);
+      } else {
+        console.warn(
+          `[AutoExpand] Query embedding generation failed, using citation count order`
+        );
+        // Fallback: sort by citation count
+        allDiscoveredPapers.sort(
+          (a, b) => (b.citationCount || 0) - (a.citationCount || 0)
+        );
+      }
+    }
 
     // 9. Return response
     const response: AutoExpandPreviewResponse = {

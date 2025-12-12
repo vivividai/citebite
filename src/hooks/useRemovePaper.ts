@@ -64,6 +64,11 @@ export function useRemovePaper() {
         queryKey: ['collections', variables.collectionId],
       });
 
+      // Invalidate graph data to update visualization
+      queryClient.invalidateQueries({
+        queryKey: ['collection-graph', variables.collectionId],
+      });
+
       toast.success('Paper removed from collection');
     },
     onError: (error: Error) => {

@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { PaperPreviewCard } from './PaperPreviewCard';
 import { Loader2, Lock, Unlock, CheckCircle, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -72,24 +73,33 @@ export function PaperPreviewDialog({
   );
   // Degree filter state
   const [degreeFilter, setDegreeFilter] = useState<'all' | 1 | 2 | 3>('all');
+  // Open Access only filter
+  const [openAccessOnly, setOpenAccessOnly] = useState(false);
 
   // Check if any papers have embeddings (for showing/hiding threshold slider)
   const hasEmbeddings = papers.some(p => p.hasEmbedding);
 
-  // Filter papers by degree
-  const filteredByDegree = useMemo(() => {
-    if (degreeFilter === 'all') return papers;
-    return papers.filter(p => p.degree === degreeFilter);
-  }, [papers, degreeFilter]);
+  // Filter papers by degree and open access
+  const filteredPapers = useMemo(() => {
+    let result = papers;
+    if (degreeFilter !== 'all') {
+      result = result.filter(p => p.degree === degreeFilter);
+    }
+    if (openAccessOnly) {
+      result = result.filter(p => p.isOpenAccess);
+    }
+    return result;
+  }, [papers, degreeFilter, openAccessOnly]);
 
   // Calculate papers above threshold
   const papersAboveThreshold = useMemo(() => {
-    if (!hasEmbeddings) return filteredByDegree;
-    return filteredByDegree.filter(p => {
-      if (p.similarity === null) return true; // Papers without embedding are included by default
+    if (!hasEmbeddings) return filteredPapers;
+    return filteredPapers.filter(p => {
+      // Papers without embedding are NOT selected by default (user must click to select)
+      if (p.similarity === null) return false;
       return p.similarity * 100 >= threshold;
     });
-  }, [filteredByDegree, threshold, hasEmbeddings]);
+  }, [filteredPapers, threshold, hasEmbeddings]);
 
   // Initialize selection when papers change or threshold changes
   useEffect(() => {
@@ -273,9 +283,21 @@ export function PaperPreviewDialog({
             </div>
           </div>
 
+          {/* Open Access Only Filter */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="openAccessOnly"
+              checked={openAccessOnly}
+              onCheckedChange={(checked: boolean) => setOpenAccessOnly(checked)}
+            />
+            <Label htmlFor="openAccessOnly" className="font-normal text-sm">
+              Open Access 논문만 표시 ({stats.openAccessPapers}개)
+            </Label>
+          </div>
+
           {/* Paper list */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-2 max-h-[350px]">
-            {filteredByDegree.map(paper => (
+            {filteredPapers.map(paper => (
               <PaperPreviewCard
                 key={paper.paperId}
                 paper={paper}

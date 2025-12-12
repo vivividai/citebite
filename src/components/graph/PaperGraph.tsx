@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useCollectionGraph } from '@/hooks/useCollectionGraph';
 import { useExpandCollection } from '@/hooks/useExpandCollection';
+import { useRemovePaper } from '@/hooks/useRemovePaper';
 import { NodeTooltip } from './NodeTooltip';
 import { PaperDetailPanel } from './PaperDetailPanel';
 import { ExpandCollectionDialog } from '@/components/collections/ExpandCollectionDialog';
@@ -109,6 +110,9 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   // Expand collection mutation
   const { mutate: expandCollection, isPending: isExpanding } =
     useExpandCollection();
+
+  // Remove paper mutation
+  const { mutate: removePaper, isPending: isRemoving } = useRemovePaper();
 
   // Update dimensions on resize using ResizeObserver for accurate sizing
   useEffect(() => {
@@ -379,6 +383,21 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     setSelectedNode(null);
   }, []);
 
+  // Handle remove paper from collection
+  const handleRemovePaper = useCallback(
+    (paperId: string) => {
+      removePaper(
+        { collectionId, paperId },
+        {
+          onSuccess: () => {
+            setSelectedNode(null);
+          },
+        }
+      );
+    },
+    [collectionId, removePaper]
+  );
+
   // Zoom controls
   const handleZoomIn = () => graphRef.current?.zoom(1.5, 400);
   const handleZoomOut = () => graphRef.current?.zoom(0.67, 400);
@@ -406,10 +425,11 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   // Handle auto-expand confirm
   const handleAutoExpandConfirm = useCallback(
     (selectedPaperIds: string[]) => {
-      // Build sourcePaperIds, sourceTypes, and degrees maps
+      // Build sourcePaperIds, sourceTypes, degrees, and similarities maps
       const sourcePaperIds: Record<string, string> = {};
       const sourceTypes: Record<string, 'reference' | 'citation'> = {};
       const degrees: Record<string, number> = {};
+      const similarities: Record<string, number> = {};
 
       for (const paperId of selectedPaperIds) {
         const paper = autoExpandPreviewPapers.find(p => p.paperId === paperId);
@@ -417,6 +437,9 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           sourcePaperIds[paperId] = paper.sourcePaperId || '';
           sourceTypes[paperId] = paper.sourceType || 'reference';
           degrees[paperId] = paper.degree || 1;
+          if (paper.similarity !== null) {
+            similarities[paperId] = paper.similarity;
+          }
         }
       }
 
@@ -427,6 +450,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           sourcePaperIds,
           sourceTypes,
           degrees,
+          similarities,
         },
         {
           onSuccess: () => {
@@ -578,6 +602,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
         node={selectedNode}
         onClose={() => setSelectedNode(null)}
         onExpand={handleExpand}
+        onRemove={handleRemovePaper}
+        isRemoving={isRemoving}
       />
 
       {/* Expand dialog */}

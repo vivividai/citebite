@@ -13,6 +13,8 @@ export interface Paper {
   vector_status: string | null;
   created_at: string | null;
   uploaded_by: string | null;
+  /** Degree of the paper (0=search, 1-3=expansion levels) */
+  degree: number;
 }
 
 interface PapersResponse {

@@ -44,7 +44,7 @@ interface PaperCardProps {
   selectionMode?: boolean;
   isSelected?: boolean;
   onSelect?: (paperId: string) => void;
-  onExpand?: (paperId: string, paperTitle: string) => void;
+  onExpand?: (paperId: string, paperTitle: string, degree: number) => void;
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -216,7 +216,7 @@ export function PaperCard({
                 size="sm"
                 onClick={e => {
                   e.stopPropagation();
-                  onExpand(paper.paper_id, paper.title);
+                  onExpand(paper.paper_id, paper.title, paper.degree);
                 }}
                 className="flex items-center gap-1"
                 title="Find related papers"

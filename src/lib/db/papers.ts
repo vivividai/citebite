@@ -100,6 +100,7 @@ export async function getCollectionPapers(
     .select(
       `
       paper_id,
+      degree,
       papers!collection_papers_paper_id_fkey (
         paper_id,
         title,
@@ -121,6 +122,11 @@ export async function getCollectionPapers(
     throw new Error(`Failed to fetch collection papers: ${error.message}`);
   }
 
-  // Transform to return just the papers (not the junction table data)
-  return data.map(item => item.papers).filter(paper => paper !== null);
+  // Transform to return papers with degree from collection_papers
+  return data
+    .filter(item => item.papers !== null)
+    .map(item => ({
+      ...item.papers,
+      degree: item.degree ?? 0,
+    }));
 }

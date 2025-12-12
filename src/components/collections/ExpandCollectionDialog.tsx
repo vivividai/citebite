@@ -31,6 +31,8 @@ interface ExpandCollectionDialogProps {
   collectionId: string;
   paperId: string;
   paperTitle: string;
+  /** Degree of the source paper (0=search, 1-3=expansion levels) */
+  sourceDegree: number;
 }
 
 type ExpandType = 'references' | 'citations' | 'both';
@@ -44,6 +46,7 @@ export function ExpandCollectionDialog({
   collectionId,
   paperId,
   paperTitle,
+  sourceDegree,
 }: ExpandCollectionDialogProps) {
   // Options state
   const [expandType, setExpandType] = useState<ExpandType>('both');
@@ -112,8 +115,11 @@ export function ExpandCollectionDialog({
     if (!previewData) return;
 
     // Filter sourceTypes and similarities to only include selected papers
+    // Build degrees map: all expanded papers get sourceDegree + 1
     const filteredSourceTypes: Record<string, 'reference' | 'citation'> = {};
     const filteredSimilarities: Record<string, number> = {};
+    const degrees: Record<string, number> = {};
+    const newDegree = sourceDegree + 1;
 
     for (const id of selectedPaperIds) {
       if (previewData.sourceTypes[id]) {
@@ -122,6 +128,7 @@ export function ExpandCollectionDialog({
       if (previewData.similarities[id] !== undefined) {
         filteredSimilarities[id] = previewData.similarities[id];
       }
+      degrees[id] = newDegree;
     }
 
     expandCollection.mutate(
@@ -131,6 +138,7 @@ export function ExpandCollectionDialog({
         sourcePaperId: paperId,
         sourceTypes: filteredSourceTypes,
         similarities: filteredSimilarities,
+        degrees,
       },
       {
         onSuccess: () => {

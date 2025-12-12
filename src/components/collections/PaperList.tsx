@@ -64,6 +64,7 @@ export function PaperList({ collectionId }: PaperListProps) {
   const [expandDialogOpen, setExpandDialogOpen] = useState(false);
   const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
   const [expandPaperTitle, setExpandPaperTitle] = useState<string>('');
+  const [expandPaperDegree, setExpandPaperDegree] = useState<number>(0);
 
   // All hooks must be called before any conditional returns
   // Filter and sort papers
@@ -179,9 +180,14 @@ export function PaperList({ collectionId }: PaperListProps) {
     filteredAndSortedPapers.every(p => selectedPaperIds.has(p.paper_id));
 
   // Handle expand button click
-  const handleExpand = (paperId: string, paperTitle: string) => {
+  const handleExpand = (
+    paperId: string,
+    paperTitle: string,
+    degree: number
+  ) => {
     setExpandPaperId(paperId);
     setExpandPaperTitle(paperTitle);
+    setExpandPaperDegree(degree);
     setExpandDialogOpen(true);
   };
 
@@ -454,6 +460,7 @@ export function PaperList({ collectionId }: PaperListProps) {
           collectionId={collectionId}
           paperId={expandPaperId}
           paperTitle={expandPaperTitle}
+          sourceDegree={expandPaperDegree}
         />
       )}
     </div>

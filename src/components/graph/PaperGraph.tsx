@@ -359,8 +359,12 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const handleNodeHover = useCallback(
     (node: PositionedNode | null, event?: MouseEvent) => {
       setHoveredNode(node);
-      if (event && node) {
-        setTooltipPosition({ x: event.clientX, y: event.clientY });
+      if (event && node && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setTooltipPosition({
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        });
       }
     },
     []
@@ -623,6 +627,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           collectionId={collectionId}
           paperId={expandPaper.id}
           paperTitle={expandPaper.title}
+          sourceDegree={expandPaper.degree}
         />
       )}
 

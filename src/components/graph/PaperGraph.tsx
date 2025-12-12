@@ -82,7 +82,6 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
 
   // UI state
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [expandDialogOpen, setExpandDialogOpen] = useState(false);
   const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
@@ -356,19 +355,9 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   );
 
   // Handle node hover
-  const handleNodeHover = useCallback(
-    (node: PositionedNode | null, event?: MouseEvent) => {
-      setHoveredNode(node);
-      if (event && node && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setTooltipPosition({
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-        });
-      }
-    },
-    []
-  );
+  const handleNodeHover = useCallback((node: PositionedNode | null) => {
+    setHoveredNode(node);
+  }, []);
 
   // Handle node click
   const handleNodeClick = useCallback((node: PositionedNode) => {
@@ -516,7 +505,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const expandPaper = graphData.nodes.find(n => n.id === expandPaperId);
 
   return (
-    <Card className="relative overflow-hidden">
+    <Card className="relative">
       {/* Legend */}
       <div className="absolute top-4 left-4 z-10 bg-background/90 backdrop-blur-sm rounded-lg p-3 border shadow-sm">
         <h4 className="text-xs font-medium mb-2">Legend</h4>
@@ -575,7 +564,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       </div>
 
       {/* Graph container */}
-      <CardContent ref={containerRef} className="p-0 h-[600px]">
+      <CardContent ref={containerRef} className="p-0 h-[600px] relative">
         <ForceGraph2D
           ref={graphRef}
           graphData={positionedData}
@@ -605,10 +594,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
         />
       </CardContent>
 
-      {/* Tooltip */}
-      {hoveredNode && !selectedNode && (
-        <NodeTooltip node={hoveredNode} position={tooltipPosition} />
-      )}
+      {/* Tooltip - fixed position next to legend */}
+      {hoveredNode && !selectedNode && <NodeTooltip node={hoveredNode} />}
 
       {/* Detail panel */}
       <PaperDetailPanel

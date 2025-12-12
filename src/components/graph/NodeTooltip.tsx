@@ -5,13 +5,13 @@ import { FileText, Users, Calendar, Award, Building2 } from 'lucide-react';
 
 interface NodeTooltipProps {
   node: GraphNode;
-  position: { x: number; y: number };
 }
 
 /**
  * Tooltip displayed when hovering over a node in the graph
+ * Fixed position below the legend panel for consistent visibility
  */
-export function NodeTooltip({ node, position }: NodeTooltipProps) {
+export function NodeTooltip({ node }: NodeTooltipProps) {
   // Truncate title if too long
   const truncatedTitle =
     node.title.length > 100 ? node.title.slice(0, 100) + '...' : node.title;
@@ -21,14 +21,7 @@ export function NodeTooltip({ node, position }: NodeTooltipProps) {
     node.authors.length > 80 ? node.authors.slice(0, 80) + '...' : node.authors;
 
   return (
-    <div
-      className="absolute z-50 bg-popover border border-border rounded-lg shadow-lg p-4 max-w-sm pointer-events-none"
-      style={{
-        left: position.x + 10,
-        top: position.y + 10,
-        transform: 'translate(0, -50%)',
-      }}
-    >
+    <div className="absolute z-50 bg-popover border border-border rounded-lg shadow-lg p-4 max-w-xs pointer-events-none top-4 left-[230px]">
       {/* Title */}
       <h4 className="font-semibold text-sm text-foreground leading-tight mb-2">
         {truncatedTitle}

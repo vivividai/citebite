@@ -204,6 +204,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     const maxDepth = Math.max(...Array.from(depthMap.values()), 1);
 
     // Position search nodes (depth 0) in center cluster
+    // Use fx, fy to fix their positions (they won't move)
     const searchNodes = nodes.filter(n => depthMap.get(n.id) === 0);
     const centerRadius = Math.min(100, searchNodes.length * 15);
     searchNodes.forEach((node, i) => {
@@ -531,6 +532,14 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           <div className="flex items-center gap-2">
             <span className="text-lg leading-none">×</span>
             <span>No PDF</span>
+          </div>
+          <div className="flex items-center gap-2 pt-1 border-t">
+            <div className="w-4 h-0.5 bg-[hsla(142,71%,45%,0.8)]" />
+            <span>References</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-[hsla(270,71%,65%,0.8)]" />
+            <span>Citations</span>
           </div>
         </div>
         {/* Auto Expand Button */}

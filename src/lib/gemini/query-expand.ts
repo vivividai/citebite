@@ -105,7 +105,6 @@ export async function expandQueryForReranking(
         ],
         config: {
           temperature: 0.3, // Low temperature for consistent output
-          maxOutputTokens: 200, // Short output expected
         },
       });
 

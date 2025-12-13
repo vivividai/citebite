@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import * as d3Hierarchy from 'd3-hierarchy';
 import { useCollectionGraph } from '@/hooks/useCollectionGraph';
 import { useExpandCollection } from '@/hooks/useExpandCollection';
 import { useBatchRemovePapers } from '@/hooks/useBatchRemovePapers';
@@ -34,6 +35,12 @@ import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import type { PaperPreview } from '@/lib/search/types';
 import toast from 'react-hot-toast';
+
+// Type for hierarchy node data
+interface HierarchyNodeData extends GraphNode {
+  children?: HierarchyNodeData[];
+  isVirtualRoot?: boolean;
+}
 
 // Dynamic import for react-force-graph-2d (SSR not supported)
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -69,6 +76,91 @@ function getNodeColor(similarity: number | null): string {
   if (similarity >= 0.4) return 'hsl(142, 71%, 45%)'; // Green
   if (similarity >= 0.3) return 'hsl(48, 96%, 53%)'; // Yellow
   return 'hsl(0, 84%, 60%)'; // Red
+}
+
+/**
+ * Build a hierarchy structure from flat nodes using sourcePaperId as parent reference
+ * Creates a virtual root if there are multiple seed papers (degree 0)
+ */
+function buildHierarchy(
+  nodes: GraphNode[]
+): d3Hierarchy.HierarchyNode<HierarchyNodeData> {
+  // Create a map for quick lookup
+  const nodeMap = new Map<string, HierarchyNodeData>();
+  nodes.forEach(node => {
+    nodeMap.set(node.id, { ...node, children: [] });
+  });
+
+  // Find root nodes (degree 0 or no sourcePaperId)
+  const rootNodes: HierarchyNodeData[] = [];
+
+  // Build parent-child relationships
+  nodes.forEach(node => {
+    const hierarchyNode = nodeMap.get(node.id)!;
+
+    if (node.degree === 0 || !node.sourcePaperId) {
+      // This is a seed paper (root)
+      rootNodes.push(hierarchyNode);
+    } else {
+      // Find parent and add as child
+      const parent = nodeMap.get(node.sourcePaperId);
+      if (parent) {
+        parent.children!.push(hierarchyNode);
+      } else {
+        // Orphan node - treat as root
+        rootNodes.push(hierarchyNode);
+      }
+    }
+  });
+
+  // If multiple roots, create a virtual root
+  if (rootNodes.length === 0) {
+    // No nodes at all
+    return d3Hierarchy.hierarchy<HierarchyNodeData>({
+      id: 'virtual-root',
+      title: '',
+      authors: '',
+      year: null,
+      citationCount: null,
+      venue: null,
+      vectorStatus: null,
+      relationshipType: 'search',
+      similarity: null,
+      abstract: null,
+      sourcePaperId: null,
+      degree: -1,
+      isVirtualRoot: true,
+      children: [],
+    });
+  }
+
+  if (rootNodes.length === 1) {
+    // Single root - no virtual root needed
+    return d3Hierarchy.hierarchy<HierarchyNodeData>(
+      rootNodes[0],
+      d => d.children
+    );
+  }
+
+  // Multiple roots - create virtual root
+  const virtualRoot: HierarchyNodeData = {
+    id: 'virtual-root',
+    title: '',
+    authors: '',
+    year: null,
+    citationCount: null,
+    venue: null,
+    vectorStatus: null,
+    relationshipType: 'search',
+    similarity: null,
+    abstract: null,
+    sourcePaperId: null,
+    degree: -1,
+    isVirtualRoot: true,
+    children: rootNodes,
+  };
+
+  return d3Hierarchy.hierarchy<HierarchyNodeData>(virtualRoot, d => d.children);
 }
 
 /**
@@ -200,125 +292,90 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     }
   }, [graphData]);
 
-  // Position nodes on concentric circles by degree
-  // degree 0 (seed papers) → innermost circle
-  // degree 1, 2, 3... → progressively larger circles
+  // Auto fit view when graph data changes
+  useEffect(() => {
+    if (graphRef.current && graphData && graphData.nodes.length > 0) {
+      // Wait for layout to settle, then fit to view
+      const timeoutId = setTimeout(() => {
+        graphRef.current?.zoomToFit(400, 80);
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [graphData]);
+
+  // Position nodes using Reingold-Tilford "tidy" tree algorithm
+  // This creates a radial tree layout with optimal spacing and no overlaps
   const positionedData = useMemo(() => {
-    if (!graphData) return { nodes: [], links: [] };
+    if (!graphData || graphData.nodes.length === 0) {
+      return { nodes: [], links: [] };
+    }
 
-    const nodes = graphData.nodes.map(node => ({
-      ...node,
-    })) as PositionedNode[];
+    // Build hierarchy from flat nodes
+    const root = buildHierarchy(graphData.nodes);
+    const hasVirtualRoot = root.data.isVirtualRoot;
 
-    // Build node lookup map for quick access
-    const nodeMap = new Map<string, PositionedNode>();
-    nodes.forEach(node => nodeMap.set(node.id, node));
+    // Calculate layout radius - 3x larger for better spacing
+    const baseRadius = Math.min(dimensions.width, dimensions.height) / 2 - 80;
+    const layoutRadius = baseRadius * 3;
 
-    // Use the degree field directly from the node data
-    // degree 0 = seed/search papers, degree 1+ = expanded papers
-    const getNodeDegree = (node: PositionedNode): number => {
-      return node.degree ?? 0;
-    };
+    // Ring spacing for each depth level
+    const ringSpacing = 150; // Fixed spacing between rings
 
-    // Group nodes by degree
-    const nodesByDegree = new Map<number, PositionedNode[]>();
-    nodes.forEach(node => {
-      const degree = getNodeDegree(node);
-      if (!nodesByDegree.has(degree)) {
-        nodesByDegree.set(degree, []);
+    // Create Reingold-Tilford tree layout in radial form
+    const treeLayout = d3Hierarchy
+      .tree<HierarchyNodeData>()
+      .size([2 * Math.PI, layoutRadius])
+      .separation((a, b) => {
+        // Separation function: siblings are closer, non-siblings further apart
+        // Divide by depth to make outer rings denser
+        const baseSeparation = a.parent === b.parent ? 1 : 2;
+        const depth = Math.max(a.depth, 1);
+        return baseSeparation / depth;
+      });
+
+    // Apply layout
+    treeLayout(root);
+
+    // Convert hierarchy nodes to positioned nodes
+    const positionedNodes: PositionedNode[] = [];
+
+    root.descendants().forEach(d => {
+      // Skip virtual root
+      if (d.data.isVirtualRoot) return;
+
+      // For radial layout: d.x is angle (radians), d.y is radius
+      // After tree layout, x and y are always defined
+      const angle = d.x ?? 0;
+      let radius: number;
+
+      if (hasVirtualRoot) {
+        // With virtual root: use fixed ring spacing
+        // depth 1 = seed papers (degree 0), depth 2 = degree 1, etc.
+        const actualDepth = d.depth - 1; // Subtract 1 for virtual root
+        if (actualDepth === 0) {
+          // Seed papers: center area with small radius
+          const seedCount =
+            root.children?.filter(c => !c.data.isVirtualRoot).length ?? 1;
+          radius = seedCount === 1 ? 0 : 80;
+        } else {
+          // Expanded papers: fixed spacing per degree
+          radius = 80 + actualDepth * ringSpacing;
+        }
+      } else {
+        // Single root: use fixed ring spacing from center
+        radius = d.depth * ringSpacing;
       }
-      nodesByDegree.get(degree)!.push(node);
+
+      // Convert polar to Cartesian coordinates
+      const x = radius * Math.cos(angle - Math.PI / 2); // Rotate -90° so tree starts at top
+      const y = radius * Math.sin(angle - Math.PI / 2);
+
+      positionedNodes.push({
+        ...d.data,
+        fx: x,
+        fy: y,
+      } as PositionedNode);
     });
-
-    // Get max degree for layout planning
-    const maxDegree = Math.max(...Array.from(nodesByDegree.keys()), 0);
-
-    // Define radii for each degree level (concentric circles)
-    const getRadiusForDegree = (degree: number): number => {
-      if (degree === 0) return 60; // Seed papers in center
-      return 60 + degree * 120; // Each degree adds 120px radius
-    };
-
-    // First pass: Position degree 0 nodes (seed papers) in center
-    const degree0Nodes = nodesByDegree.get(0) || [];
-    if (degree0Nodes.length === 1) {
-      degree0Nodes[0].fx = 0;
-      degree0Nodes[0].fy = 0;
-    } else {
-      const radius0 = getRadiusForDegree(0);
-      degree0Nodes.forEach((node, i) => {
-        const angle = (2 * Math.PI * i) / degree0Nodes.length;
-        node.fx = Math.cos(angle) * radius0;
-        node.fy = Math.sin(angle) * radius0;
-      });
-    }
-
-    // For higher degrees: distribute nodes evenly but grouped by parent
-    // Children of the same parent stay adjacent, positioned near parent's angle
-    for (let degree = 1; degree <= maxDegree; degree++) {
-      const nodesAtDegree = nodesByDegree.get(degree) || [];
-      if (nodesAtDegree.length === 0) continue;
-
-      const radius = getRadiusForDegree(degree);
-
-      // Group nodes by their parent (source)
-      const nodesByParent = new Map<string, PositionedNode[]>();
-      nodesAtDegree.forEach(node => {
-        const parentId = node.sourcePaperId || 'orphan';
-        if (!nodesByParent.has(parentId)) {
-          nodesByParent.set(parentId, []);
-        }
-        nodesByParent.get(parentId)!.push(node);
-      });
-
-      // Calculate each parent's angle and sort parents by angle
-      const parentGroups = Array.from(nodesByParent.entries()).map(
-        ([parentId, children]) => {
-          const parentNode = nodeMap.get(parentId);
-          const px = parentNode?.fx ?? parentNode?.x ?? 0;
-          const py = parentNode?.fy ?? parentNode?.y ?? 0;
-          const parentAngle = Math.atan2(py, px);
-          return { parentId, children, parentAngle };
-        }
-      );
-
-      // Sort parent groups by their angle
-      parentGroups.sort((a, b) => a.parentAngle - b.parentAngle);
-
-      // Sequential sector allocation (no overlap guaranteed)
-      const totalChildren = nodesAtDegree.length;
-      const anglePerChild = (2 * Math.PI) / totalChildren;
-
-      // Calculate unrotated sector centers (a_i) for each parent
-      let cumulative = 0;
-      const sectorCenters: number[] = [];
-      parentGroups.forEach(group => {
-        const center = (cumulative + group.children.length / 2) * anglePerChild;
-        sectorCenters.push(center);
-        cumulative += group.children.length;
-      });
-
-      // Optimal rotation: minimize weighted sum of squared angular distances
-      let weightedSum = 0;
-      let totalWeight = 0;
-      parentGroups.forEach((group, i) => {
-        const weight = group.children.length;
-        weightedSum += weight * (group.parentAngle - sectorCenters[i]);
-        totalWeight += weight;
-      });
-      const optimalRotation = totalWeight > 0 ? weightedSum / totalWeight : 0;
-
-      // Place nodes with optimal rotation
-      let nodeIndex = 0;
-      parentGroups.forEach(group => {
-        group.children.forEach(node => {
-          const angle = optimalRotation + nodeIndex * anglePerChild;
-          node.fx = Math.cos(angle) * radius;
-          node.fy = Math.sin(angle) * radius;
-          nodeIndex++;
-        });
-      });
-    }
 
     // Convert edges to links format for react-force-graph
     const links = graphData.edges.map(edge => ({
@@ -327,8 +384,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       relationshipType: edge.relationshipType,
     }));
 
-    return { nodes, links };
-  }, [graphData]);
+    return { nodes: positionedNodes, links };
+  }, [graphData, dimensions]);
 
   // Draw node with appropriate shape
   const drawNode = useCallback(

@@ -38,12 +38,19 @@ export function useCreateCollection() {
     mutationFn: async (
       data: CreateCollectionInput
     ): Promise<CreateCollectionResponse> => {
+      // Map to API expected field names
+      const apiPayload = {
+        name: data.name,
+        researchQuestion: data.researchQuestion,
+        seedPaperIds: data.selectedPaperIds,
+      };
+
       const res = await fetch('/api/collections', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(apiPayload),
       });
 
       const responseData = await res.json();

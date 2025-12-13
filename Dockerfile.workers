@@ -3,9 +3,14 @@
 
 FROM node:20-slim
 
-# Install poppler-utils for PDF rendering
+# Install system dependencies:
+# - poppler-utils: PDF to image conversion (pdftoppm, pdfinfo)
+# - libvips: Required by Sharp for image processing (cropping figures)
+# - fonts-noto: Better font rendering for PDFs
 RUN apt-get update && apt-get install -y \
     poppler-utils \
+    libvips-dev \
+    fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

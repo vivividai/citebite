@@ -58,8 +58,9 @@ export function extractFigureReferences(text: string): FigureReference[] {
  */
 export function normalizeFigureReference(ref: string): string {
   let normalized = ref
-    // Normalize "Fig." variants to "Figure"
-    .replace(/\bFigs?\.?\s*/gi, 'Figure ')
+    // Normalize "Fig." variants to "Figure" (but not "Figure" itself)
+    // Using negative lookahead (?!ure) to avoid matching "Figure"
+    .replace(/\bFig(?!ure)s?\.?\s*/gi, 'Figure ')
     // Normalize "Tables" to "Table"
     .replace(/\bTables\b/gi, 'Table')
     // Normalize "Schemes" to "Scheme"

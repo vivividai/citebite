@@ -1,18 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 
+/**
+ * Input for creating a collection with seed papers
+ */
 export interface CreateCollectionInput {
   name: string;
-  keywords?: string;
-  useAiAssistant?: boolean;
-  naturalLanguageQuery?: string;
-  selectedPaperIds?: string[];
-  filters?: {
-    yearFrom?: number | unknown;
-    yearTo?: number | unknown;
-    minCitations?: number | unknown;
-    openAccessOnly?: boolean;
-  };
+  researchQuestion: string;
+  selectedPaperIds: string[];
 }
 
 interface CreateCollectionResponse {
@@ -21,8 +16,7 @@ interface CreateCollectionResponse {
     collection: {
       id: string;
       name: string;
-      searchQuery: string;
-      filters: Record<string, unknown> | null;
+      naturalLanguageQuery: string;
       createdAt: string;
     };
     stats: {
@@ -35,7 +29,7 @@ interface CreateCollectionResponse {
 }
 
 /**
- * Hook to create a new collection
+ * Hook to create a new collection with seed papers
  */
 export function useCreateCollection() {
   const queryClient = useQueryClient();

@@ -17,6 +17,9 @@ import type {
   Reference,
   Citation,
   RelatedPapersOptions,
+  PaperMatchResponse,
+  AuthorSearchResponse,
+  AuthorWithDetails,
 } from './types';
 
 const BASE_URL = 'https://api.semanticscholar.org/graph/v1';
@@ -608,6 +611,160 @@ export class SemanticScholarClient {
     );
 
     return result;
+  }
+
+  /**
+   * Search for a paper by title using the /paper/search/match endpoint
+   * Returns the single best matching paper
+   *
+   * @param title Paper title to search for
+   * @param fields Fields to return (optional)
+   * @returns Best matching paper or null if not found
+   */
+  async searchPaperByTitle(
+    title: string,
+    fields?: string[]
+  ): Promise<PaperMatchResponse | null> {
+    const defaultFields =
+      'paperId,title,abstract,authors,year,citationCount,venue,publicationTypes,openAccessPdf,externalIds';
+    const requestFields = fields?.join(',') || defaultFields;
+
+    try {
+      const response = await this.executeWithRetry(async () => {
+        return this.client.get<PaperMatchResponse>('/paper/search/match', {
+          params: {
+            query: title,
+            fields: requestFields,
+          },
+        });
+      });
+
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      // 404 means no matching paper found
+      if (axiosError.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Search for authors by name using the /author/search endpoint
+   *
+   * @param name Author name to search for
+   * @param options Optional parameters for pagination and fields
+   * @returns Author search response with pagination
+   */
+  async searchAuthors(
+    name: string,
+    options?: {
+      offset?: number;
+      limit?: number;
+      fields?: string[];
+      includePapers?: boolean;
+    }
+  ): Promise<AuthorSearchResponse> {
+    // Default fields for author search
+    const defaultFields =
+      'authorId,name,affiliations,paperCount,citationCount,hIndex';
+    let requestFields = options?.fields?.join(',') || defaultFields;
+
+    // Include papers if requested (with paper details)
+    if (options?.includePapers) {
+      requestFields +=
+        ',papers.paperId,papers.title,papers.abstract,papers.authors,papers.year,papers.citationCount,papers.venue,papers.openAccessPdf';
+    }
+
+    const response = await this.executeWithRetry(async () => {
+      return this.client.get<AuthorSearchResponse>('/author/search', {
+        params: {
+          query: name,
+          fields: requestFields,
+          offset: options?.offset || 0,
+          limit: options?.limit || 100,
+        },
+      });
+    });
+
+    return response.data;
+  }
+
+  /**
+   * Search for papers by author name
+   * This is a convenience method that searches for authors and returns their papers
+   *
+   * @param authorName Author name to search for
+   * @param options Optional parameters for pagination and filtering
+   * @returns Papers from matching authors
+   */
+  async searchPapersByAuthor(
+    authorName: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      yearFrom?: number;
+      yearTo?: number;
+      minCitations?: number;
+      openAccessOnly?: boolean;
+    }
+  ): Promise<{ papers: Paper[]; total: number; authors: AuthorWithDetails[] }> {
+    // First, search for authors with their papers
+    const authorResponse = await this.searchAuthors(authorName, {
+      limit: 10, // Get top 10 matching authors
+      includePapers: true,
+    });
+
+    if (authorResponse.data.length === 0) {
+      return { papers: [], total: 0, authors: [] };
+    }
+
+    // Collect all papers from matching authors
+    const allPapers: Paper[] = [];
+    const seenPaperIds = new Set<string>();
+
+    for (const author of authorResponse.data) {
+      if (author.papers) {
+        for (const paper of author.papers) {
+          // Deduplicate papers (same paper might appear for multiple co-authors)
+          if (!seenPaperIds.has(paper.paperId)) {
+            seenPaperIds.add(paper.paperId);
+
+            // Apply filters
+            const yearOk =
+              (!options?.yearFrom ||
+                (paper.year && paper.year >= options.yearFrom)) &&
+              (!options?.yearTo ||
+                (paper.year && paper.year <= options.yearTo));
+            const citationOk =
+              !options?.minCitations ||
+              (paper.citationCount &&
+                paper.citationCount >= options.minCitations);
+            const openAccessOk =
+              !options?.openAccessOnly || paper.openAccessPdf?.url;
+
+            if (yearOk && citationOk && openAccessOk) {
+              allPapers.push(paper);
+            }
+          }
+        }
+      }
+    }
+
+    // Sort by citation count (descending)
+    allPapers.sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0));
+
+    // Apply pagination
+    const offset = options?.offset || 0;
+    const limit = options?.limit || 20;
+    const paginatedPapers = allPapers.slice(offset, offset + limit);
+
+    return {
+      papers: paginatedPapers,
+      total: allPapers.length,
+      authors: authorResponse.data,
+    };
   }
 }
 

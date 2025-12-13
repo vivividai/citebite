@@ -165,3 +165,45 @@ export interface RelatedPapersOptions {
   limit?: number;
   fields?: string[];
 }
+
+/**
+ * Paper match response from /paper/search/match endpoint
+ * Returns a single paper with the closest title match
+ */
+export interface PaperMatchResponse {
+  paperId: string;
+  title: string;
+  matchScore: number;
+  abstract?: string;
+  authors?: Author[];
+  year?: number;
+  citationCount?: number;
+  venue?: string;
+  publicationTypes?: string[];
+  openAccessPdf?: OpenAccessPdf | null;
+  externalIds?: ExternalIds;
+}
+
+/**
+ * Author with extended information from author search
+ */
+export interface AuthorWithDetails {
+  authorId: string;
+  name: string;
+  affiliations?: string[];
+  homepage?: string;
+  paperCount?: number;
+  citationCount?: number;
+  hIndex?: number;
+  papers?: Paper[];
+}
+
+/**
+ * Response from /author/search endpoint
+ */
+export interface AuthorSearchResponse {
+  total: number;
+  offset: number;
+  next?: number;
+  data: AuthorWithDetails[];
+}

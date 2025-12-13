@@ -1,6 +1,11 @@
 /**
  * Paper Search API
  * GET /api/papers/search - Search for papers via Semantic Scholar
+ *
+ * Supports three search types:
+ * - keywords: Full-text search across title and abstract
+ * - title: Search by paper title (uses phrase matching)
+ * - author: Search for papers by author name (uses /author/search endpoint)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -85,51 +90,79 @@ export async function GET(request: NextRequest) {
     }
 
     const params = validation.data;
-
-    // 3. Build search query based on search type
-    let searchQuery = params.query;
-    if (params.searchType === 'title') {
-      // Use title: prefix for title search (Semantic Scholar syntax)
-      searchQuery = `title:${params.query}`;
-    } else if (params.searchType === 'author') {
-      // Use author: prefix for author search
-      searchQuery = `author:${params.query}`;
-    }
-    // For 'keywords', use the query as-is
-
-    // 4. Search via Semantic Scholar
     const client = getSemanticScholarClient();
-    const response = await client.searchPapers({
-      keywords: searchQuery,
-      yearFrom: params.yearFrom,
-      yearTo: params.yearTo,
-      minCitations: params.minCitations,
-      openAccessOnly: params.openAccessOnly,
-      limit: params.limit,
-      offset: params.offset,
-    });
 
-    // 5. Transform results
-    const papers: PaperSearchResult[] = (response.data || []).map(paper => ({
-      paperId: paper.paperId,
-      title: paper.title,
-      authors: paper.authors || [],
-      year: paper.year ?? null,
-      abstract: paper.abstract ?? null,
-      citationCount: paper.citationCount ?? null,
-      venue: paper.venue ?? null,
-      isOpenAccess: !!paper.openAccessPdf?.url,
-      openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
-    }));
+    let papers: PaperSearchResult[] = [];
+    let total = 0;
 
-    // 6. Return response
+    // 3. Execute search based on search type
+    if (params.searchType === 'author') {
+      // Author search: Use the dedicated /author/search endpoint
+      // This searches for authors by name and returns their papers
+      const result = await client.searchPapersByAuthor(params.query, {
+        limit: params.limit,
+        offset: params.offset,
+        yearFrom: params.yearFrom,
+        yearTo: params.yearTo,
+        minCitations: params.minCitations,
+        openAccessOnly: params.openAccessOnly,
+      });
+
+      papers = result.papers.map(paper => ({
+        paperId: paper.paperId,
+        title: paper.title,
+        authors: paper.authors || [],
+        year: paper.year ?? null,
+        abstract: paper.abstract ?? null,
+        citationCount: paper.citationCount ?? null,
+        venue: paper.venue ?? null,
+        isOpenAccess: !!paper.openAccessPdf?.url,
+        openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
+      }));
+      total = result.total;
+    } else {
+      // Keywords or Title search: Use the bulk search endpoint
+      // For title search, wrap in quotes for phrase matching
+      let searchQuery = params.query;
+      if (params.searchType === 'title') {
+        // Wrap the query in quotes for phrase matching
+        // This makes the search match the exact phrase in title or abstract
+        // which is more appropriate for finding papers by title
+        searchQuery = `"${params.query}"`;
+      }
+
+      const response = await client.searchPapers({
+        keywords: searchQuery,
+        yearFrom: params.yearFrom,
+        yearTo: params.yearTo,
+        minCitations: params.minCitations,
+        openAccessOnly: params.openAccessOnly,
+        limit: params.limit,
+        offset: params.offset,
+      });
+
+      papers = (response.data || []).map(paper => ({
+        paperId: paper.paperId,
+        title: paper.title,
+        authors: paper.authors || [],
+        year: paper.year ?? null,
+        abstract: paper.abstract ?? null,
+        citationCount: paper.citationCount ?? null,
+        venue: paper.venue ?? null,
+        isOpenAccess: !!paper.openAccessPdf?.url,
+        openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
+      }));
+      total = response.total || 0;
+    }
+
+    // 4. Return response
     return NextResponse.json({
       success: true,
       data: {
         papers,
-        total: response.total || 0,
+        total,
         offset: params.offset,
-        hasMore: params.offset + papers.length < (response.total || 0),
+        hasMore: params.offset + papers.length < total,
       },
     });
   } catch (error) {

@@ -34,6 +34,7 @@ import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import type { PaperPreview } from '@/lib/search/types';
 import toast from 'react-hot-toast';
+import * as d3 from 'd3-force';
 
 // Dynamic import for react-force-graph-2d (SSR not supported)
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -193,10 +194,21 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     };
   }, [graphData]);
 
-  // Disable center force to prevent nodes from being pulled to center
+  // Configure force simulation for better node distribution
   useEffect(() => {
     if (graphRef.current) {
+      // Disable center force to prevent nodes from being pulled to center
       graphRef.current.d3Force('center', null);
+
+      // Add repulsion force between nodes (negative = repulsion)
+      graphRef.current.d3Force('charge', d3.forceManyBody().strength(-150));
+
+      // Configure uniform link distance
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const linkForce = graphRef.current.d3Force('link') as any;
+      if (linkForce && typeof linkForce.distance === 'function') {
+        linkForce.distance(100); // Uniform link length for all connections
+      }
     }
   }, [graphData]);
 
@@ -242,7 +254,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     // Get max depth for radius scaling
     const maxDepth = Math.max(...Array.from(depthMap.values()), 1);
 
-    // Position search nodes (depth 0) in center cluster
+    // Position search nodes (depth 0) in center cluster as regular polygon
     // Use fx, fy to fix their positions (they won't move)
     const searchNodes = nodes.filter(n => depthMap.get(n.id) === 0);
     const centerRadius = Math.min(100, searchNodes.length * 15);
@@ -274,8 +286,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       // Position each group around its source, facing outward
       nodesBySource.forEach((sourceNodes, sourceId) => {
         const sourceNode = nodeMap.get(sourceId);
-        const sourceX = sourceNode?.fx ?? sourceNode?.x ?? 0;
-        const sourceY = sourceNode?.fy ?? sourceNode?.y ?? 0;
+        const sourceX = sourceNode?.x ?? 0;
+        const sourceY = sourceNode?.y ?? 0;
 
         // Calculate base angle: direction from center (0,0) to source node
         // This ensures expanded nodes face outward, away from the center
@@ -297,9 +309,9 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           const angle =
             baseAngle + spreadOffset + (Math.random() * 0.15 - 0.075);
 
-          // Fix positions so nodes don't get pulled to center
-          node.fx = sourceX + Math.cos(angle) * outerRadius;
-          node.fy = sourceY + Math.sin(angle) * outerRadius;
+          // Set initial positions (force simulation will adjust)
+          node.x = sourceX + Math.cos(angle) * outerRadius;
+          node.y = sourceY + Math.sin(angle) * outerRadius;
         });
       });
     }
@@ -311,7 +323,24 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       relationshipType: edge.relationshipType,
     }));
 
-    return { nodes, links };
+    // Add virtual links between seed papers to keep them clustered
+    const seedNodes = nodes.filter(n => depthMap.get(n.id) === 0);
+    const seedLinks: Array<{
+      source: string;
+      target: string;
+      relationshipType: string;
+    }> = [];
+    for (let i = 0; i < seedNodes.length; i++) {
+      for (let j = i + 1; j < seedNodes.length; j++) {
+        seedLinks.push({
+          source: seedNodes[i].id,
+          target: seedNodes[j].id,
+          relationshipType: 'seed-connection',
+        });
+      }
+    }
+
+    return { nodes, links: [...links, ...seedLinks] };
   }, [graphData]);
 
   // Draw node with appropriate shape
@@ -376,6 +405,11 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       },
       ctx: CanvasRenderingContext2D
     ) => {
+      // Don't render seed-connection links (they're only for force calculation)
+      if (link.relationshipType === 'seed-connection') {
+        return;
+      }
+
       ctx.save();
 
       const isReference = link.relationshipType === 'reference';
@@ -665,8 +699,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
             }) as never
           }
           enableNodeDrag={false}
-          cooldownTicks={100}
-          d3AlphaDecay={0.02}
+          cooldownTicks={200}
+          d3AlphaDecay={0.01}
           d3VelocityDecay={0.3}
         />
       </CardContent>

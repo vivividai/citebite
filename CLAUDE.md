@@ -47,6 +47,7 @@ Technical documentation is organized by concern for easier navigation:
 - **[BACKEND.md](./docs/planning/BACKEND.md)** - Backend stack (API routes, authentication, input validation, HTTP clients)
 - **[DATABASE.md](./docs/planning/DATABASE.md)** - Database design (PostgreSQL schema, Supabase CLI, SQL migrations, Supabase Storage, RLS policies)
 - **[INFRASTRUCTURE.md](./docs/planning/INFRASTRUCTURE.md)** - Background jobs (BullMQ), deployment (Vercel, Railway), security, testing, and cost analysis
+- **[MULTIMODAL_RAG.md](./docs/planning/MULTIMODAL_RAG.md)** - Multimodal RAG implementation plan (Figure/Chart extraction and analysis)
 - **[ROADMAP.md](./docs/ROADMAP.md)** - Detailed implementation checklist with 8 phases (~110 testable tasks)
 
 **When to reference each document:**

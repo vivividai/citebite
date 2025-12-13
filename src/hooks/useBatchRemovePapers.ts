@@ -81,6 +81,11 @@ export function useBatchRemovePapers() {
         queryKey: ['collections', variables.collectionId],
       });
 
+      // Invalidate graph data to update visualization
+      queryClient.invalidateQueries({
+        queryKey: ['collection-graph', variables.collectionId],
+      });
+
       const { summary } = data.data;
 
       if (summary.failed === 0) {

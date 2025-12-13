@@ -4,7 +4,7 @@ import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useCollectionGraph } from '@/hooks/useCollectionGraph';
 import { useExpandCollection } from '@/hooks/useExpandCollection';
-import { useRemovePaper } from '@/hooks/useRemovePaper';
+import { useBatchRemovePapers } from '@/hooks/useBatchRemovePapers';
 import { NodeTooltip } from './NodeTooltip';
 import { PaperDetailPanel } from './PaperDetailPanel';
 import { ExpandCollectionDialog } from '@/components/collections/ExpandCollectionDialog';
@@ -12,6 +12,16 @@ import { AutoExpandDialog } from '@/components/collections/AutoExpandDialog';
 import { PaperPreviewDialog } from '@/components/collections/PaperPreviewDialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Loader2,
   ZoomIn,
@@ -45,25 +55,20 @@ const X_SIZE = 6;
 
 /**
  * Get node color based on similarity score
- * Higher similarity = darker/more saturated color
+ * - Blue (50%+): High relevance
+ * - Green (40-49%): Good relevance
+ * - Yellow (30-39%): Medium relevance
+ * - Red (<30%): Low relevance
  */
-function getNodeColor(
-  similarity: number | null,
-  relationshipType: string
-): string {
-  // Base colors by relationship type
-  if (relationshipType === 'search') {
-    return 'hsl(221, 83%, 53%)'; // Blue for search results
-  }
-
+function getNodeColor(similarity: number | null): string {
   if (similarity === null) {
-    return 'hsl(var(--muted-foreground))';
+    return 'hsl(var(--muted-foreground))'; // Gray for no embedding
   }
 
-  // For expanded papers: gradient from light to dark based on similarity
-  // Using chart-1 color (orange/coral theme)
-  const lightness = 70 - similarity * 40; // 70% (low sim) to 30% (high sim)
-  return `hsl(12, 76%, ${lightness}%)`;
+  if (similarity >= 0.5) return 'hsl(217, 91%, 60%)'; // Blue
+  if (similarity >= 0.4) return 'hsl(142, 71%, 45%)'; // Green
+  if (similarity >= 0.3) return 'hsl(48, 96%, 53%)'; // Yellow
+  return 'hsl(0, 84%, 60%)'; // Red
 }
 
 /**
@@ -110,8 +115,43 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const { mutate: expandCollection, isPending: isExpanding } =
     useExpandCollection();
 
-  // Remove paper mutation
-  const { mutate: removePaper, isPending: isRemoving } = useRemovePaper();
+  // Remove paper mutation (batch for cascading delete)
+  const { mutate: batchRemovePapers, isPending: isRemoving } =
+    useBatchRemovePapers();
+
+  // Delete confirmation dialog state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [paperToDelete, setPaperToDelete] = useState<{
+    id: string;
+    title: string;
+    descendantIds: string[];
+  } | null>(null);
+
+  // Find all descendant nodes (children, grandchildren, etc.) by following sourcePaperId chain
+  const findDescendants = useCallback(
+    (paperId: string): string[] => {
+      if (!graphData) return [];
+
+      const descendants: string[] = [];
+      const visited = new Set<string>();
+
+      const findChildren = (parentId: string) => {
+        if (visited.has(parentId)) return;
+        visited.add(parentId);
+
+        for (const node of graphData.nodes) {
+          if (node.sourcePaperId === parentId && !visited.has(node.id)) {
+            descendants.push(node.id);
+            findChildren(node.id); // Recursively find grandchildren
+          }
+        }
+      };
+
+      findChildren(paperId);
+      return descendants;
+    },
+    [graphData]
+  );
 
   // Update dimensions on resize using ResizeObserver for accurate sizing
   useEffect(() => {
@@ -277,7 +317,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   // Draw node with appropriate shape
   const drawNode = useCallback(
     (node: PositionedNode, ctx: CanvasRenderingContext2D) => {
-      const color = getNodeColor(node.similarity, node.relationshipType);
+      const color = getNodeColor(node.similarity);
       const isHovered = hoveredNode?.id === node.id;
       const isSelected = selectedNode?.id === node.id;
       const scale = isHovered || isSelected ? 1.3 : 1;
@@ -377,20 +417,45 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     setSelectedNode(null);
   }, []);
 
-  // Handle remove paper from collection
+  // Handle remove paper request - shows confirmation dialog
   const handleRemovePaper = useCallback(
     (paperId: string) => {
-      removePaper(
-        { collectionId, paperId },
-        {
-          onSuccess: () => {
-            setSelectedNode(null);
-          },
-        }
-      );
+      const node = graphData?.nodes.find(n => n.id === paperId);
+      if (!node) return;
+
+      const descendantIds = findDescendants(paperId);
+
+      setPaperToDelete({
+        id: paperId,
+        title: node.title,
+        descendantIds,
+      });
+      setDeleteConfirmOpen(true);
     },
-    [collectionId, removePaper]
+    [graphData, findDescendants]
   );
+
+  // Handle confirmed deletion
+  const handleConfirmDelete = useCallback(() => {
+    if (!paperToDelete) return;
+
+    const paperIds = [paperToDelete.id, ...paperToDelete.descendantIds];
+
+    batchRemovePapers(
+      { collectionId, paperIds },
+      {
+        onSuccess: () => {
+          setSelectedNode(null);
+          setDeleteConfirmOpen(false);
+          setPaperToDelete(null);
+        },
+        onError: () => {
+          setDeleteConfirmOpen(false);
+          setPaperToDelete(null);
+        },
+      }
+    );
+  }, [paperToDelete, collectionId, batchRemovePapers]);
 
   // Zoom controls
   const handleZoomIn = () => graphRef.current?.zoom(1.5, 400);
@@ -508,15 +573,27 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     <Card className="relative">
       {/* Legend */}
       <div className="absolute top-4 left-4 z-10 bg-background/90 backdrop-blur-sm rounded-lg p-3 border shadow-sm">
-        <h4 className="text-xs font-medium mb-2">Legend</h4>
+        <h4 className="text-xs font-medium mb-2">Similarity</h4>
         <div className="space-y-1.5 text-xs">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-blue-500" />
-            <span>Initial search</span>
+            <span>≥50%</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[hsl(12,76%,50%)]" />
-            <span>Expanded (by similarity)</span>
+            <div className="w-3 h-3 rounded-full bg-green-500" />
+            <span>40-49%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-yellow-500" />
+            <span>30-39%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <span>&lt;30%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-muted-foreground" />
+            <span>N/A</span>
           </div>
           <div className="flex items-center gap-2 pt-1 border-t">
             <div className="w-3 h-3 rounded-full border-2 border-current" />
@@ -661,6 +738,60 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
           }}
         />
       )}
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Paper from Collection</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Are you sure you want to remove &quot;{paperToDelete?.title}
+                  &quot;?
+                </p>
+                {paperToDelete && paperToDelete.descendantIds.length > 0 && (
+                  <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20">
+                    <p className="text-destructive font-medium">
+                      This will also remove {paperToDelete.descendantIds.length}{' '}
+                      connected paper
+                      {paperToDelete.descendantIds.length > 1 ? 's' : ''} that
+                      were expanded from this paper.
+                    </p>
+                  </div>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  This action cannot be undone. The paper
+                  {paperToDelete && paperToDelete.descendantIds.length > 0
+                    ? 's'
+                    : ''}{' '}
+                  and associated data will be permanently removed from this
+                  collection.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                setPaperToDelete(null);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isRemoving}
+            >
+              {isRemoving
+                ? 'Removing...'
+                : `Remove ${paperToDelete ? paperToDelete.descendantIds.length + 1 : 1} Paper${paperToDelete && paperToDelete.descendantIds.length > 0 ? 's' : ''}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

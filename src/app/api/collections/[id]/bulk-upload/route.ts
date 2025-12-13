@@ -80,13 +80,15 @@ export async function POST(
     }
 
     // 3. Get papers in collection
+    // Note: Must specify FK name because collection_papers has two FKs to papers
+    // (paper_id and source_paper_id)
     const adminSupabase = createAdminSupabaseClient();
     const { data: collectionPapers, error: papersError } = await adminSupabase
       .from('collection_papers')
       .select(
         `
         paper_id,
-        papers!inner (
+        papers:papers!collection_papers_paper_id_fkey (
           paper_id,
           title,
           open_access_pdf_url,

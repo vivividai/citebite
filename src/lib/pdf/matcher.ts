@@ -85,6 +85,14 @@ function matchByDoi(paperDoi: string, pdfText: string): boolean {
 }
 
 /**
+ * Normalize text removing ALL spaces (for aggressive matching)
+ * Handles cases like "mm Wave" vs "mmWave"
+ */
+function normalizeTextNoSpaces(text: string): string {
+  return normalizeText(text).replace(/\s+/g, '');
+}
+
+/**
  * Check if paper's title exists in PDF content
  */
 function matchByTitle(paperTitle: string, pdfText: string): boolean {
@@ -103,6 +111,23 @@ function matchByTitle(paperTitle: string, pdfText: string): boolean {
       .slice(0, Math.min(8, titleWords.length))
       .join(' ');
     if (normalizedText.includes(partialTitle)) {
+      return true;
+    }
+  }
+
+  // Try matching with all spaces removed (handles "mm Wave" vs "mmWave" cases)
+  const titleNoSpaces = normalizeTextNoSpaces(paperTitle);
+  const textNoSpaces = normalizeTextNoSpaces(pdfText);
+  if (textNoSpaces.includes(titleNoSpaces)) {
+    return true;
+  }
+
+  // Also try partial title with no spaces
+  if (titleWords.length >= 5) {
+    const partialTitleNoSpaces = titleWords
+      .slice(0, Math.min(8, titleWords.length))
+      .join('');
+    if (textNoSpaces.includes(partialTitleNoSpaces)) {
       return true;
     }
   }

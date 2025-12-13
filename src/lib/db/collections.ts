@@ -136,10 +136,13 @@ export async function getUserCollections(
       // Get indexed papers for this collection
       const { count: indexedPapers, error: indexedError } = await supabase
         .from('collection_papers')
-        .select('paper_id, papers!inner(vector_status)', {
-          count: 'exact',
-          head: true,
-        })
+        .select(
+          'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
+          {
+            count: 'exact',
+            head: true,
+          }
+        )
         .eq('collection_id', collection.id)
         .eq('papers.vector_status', 'completed');
 
@@ -192,10 +195,13 @@ export async function getCollectionById(
   // Get indexed papers for this collection
   const { count: indexedPapers, error: indexedError } = await supabase
     .from('collection_papers')
-    .select('paper_id, papers!inner(vector_status)', {
-      count: 'exact',
-      head: true,
-    })
+    .select(
+      'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
+      {
+        count: 'exact',
+        head: true,
+      }
+    )
     .eq('collection_id', collection.id)
     .eq('papers.vector_status', 'completed');
 
@@ -209,10 +215,13 @@ export async function getCollectionById(
   // Get failed papers count
   const { count: failedPapers, error: failedError } = await supabase
     .from('collection_papers')
-    .select('paper_id, papers!inner(vector_status)', {
-      count: 'exact',
-      head: true,
-    })
+    .select(
+      'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
+      {
+        count: 'exact',
+        head: true,
+      }
+    )
     .eq('collection_id', collection.id)
     .eq('papers.vector_status', 'failed');
 

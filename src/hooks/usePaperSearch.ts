@@ -6,8 +6,10 @@ import { useDebouncedCallback } from 'use-debounce';
 
 /**
  * Search type options
+ * Note: Author search was removed due to Semantic Scholar API limitations
+ * (only returns limited papers per author, sorted by citations)
  */
-export type SearchType = 'title' | 'author' | 'keywords';
+export type SearchType = 'title' | 'keywords';
 
 /**
  * Search filters

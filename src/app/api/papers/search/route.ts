@@ -2,10 +2,12 @@
  * Paper Search API
  * GET /api/papers/search - Search for papers via Semantic Scholar
  *
- * Supports three search types:
+ * Supports two search types:
  * - keywords: Full-text search across title and abstract
  * - title: Search by paper title (uses phrase matching)
- * - author: Search for papers by author name (uses /author/search endpoint)
+ *
+ * Note: Author search was removed due to Semantic Scholar API limitations
+ * (limited papers per author, sorted by citations only)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,7 +20,8 @@ import { z } from 'zod';
  */
 const searchParamsSchema = z.object({
   query: z.string().min(1, 'Query is required'),
-  searchType: z.enum(['title', 'author', 'keywords']).default('keywords'),
+  // Note: 'author' search was removed due to Semantic Scholar API limitations
+  searchType: z.enum(['title', 'keywords']).default('keywords'),
   yearFrom: z.coerce.number().int().min(1900).optional(),
   yearTo: z.coerce.number().int().max(new Date().getFullYear()).optional(),
   minCitations: z.coerce.number().int().min(0).optional(),
@@ -92,68 +95,38 @@ export async function GET(request: NextRequest) {
     const params = validation.data;
     const client = getSemanticScholarClient();
 
-    let papers: PaperSearchResult[] = [];
-    let total = 0;
-
-    // 3. Execute search based on search type
-    if (params.searchType === 'author') {
-      // Author search: Use the dedicated /author/search endpoint
-      // This searches for authors by name and returns their papers
-      const result = await client.searchPapersByAuthor(params.query, {
-        limit: params.limit,
-        offset: params.offset,
-        yearFrom: params.yearFrom,
-        yearTo: params.yearTo,
-        minCitations: params.minCitations,
-        openAccessOnly: params.openAccessOnly,
-      });
-
-      papers = result.papers.map(paper => ({
-        paperId: paper.paperId,
-        title: paper.title,
-        authors: paper.authors || [],
-        year: paper.year ?? null,
-        abstract: paper.abstract ?? null,
-        citationCount: paper.citationCount ?? null,
-        venue: paper.venue ?? null,
-        isOpenAccess: !!paper.openAccessPdf?.url,
-        openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
-      }));
-      total = result.total;
-    } else {
-      // Keywords or Title search: Use the bulk search endpoint
-      // For title search, wrap in quotes for phrase matching
-      let searchQuery = params.query;
-      if (params.searchType === 'title') {
-        // Wrap the query in quotes for phrase matching
-        // This makes the search match the exact phrase in title or abstract
-        // which is more appropriate for finding papers by title
-        searchQuery = `"${params.query}"`;
-      }
-
-      const response = await client.searchPapers({
-        keywords: searchQuery,
-        yearFrom: params.yearFrom,
-        yearTo: params.yearTo,
-        minCitations: params.minCitations,
-        openAccessOnly: params.openAccessOnly,
-        limit: params.limit,
-        offset: params.offset,
-      });
-
-      papers = (response.data || []).map(paper => ({
-        paperId: paper.paperId,
-        title: paper.title,
-        authors: paper.authors || [],
-        year: paper.year ?? null,
-        abstract: paper.abstract ?? null,
-        citationCount: paper.citationCount ?? null,
-        venue: paper.venue ?? null,
-        isOpenAccess: !!paper.openAccessPdf?.url,
-        openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
-      }));
-      total = response.total || 0;
+    // 3. Execute search using bulk search endpoint
+    // For title search, wrap in quotes for phrase matching
+    let searchQuery = params.query;
+    if (params.searchType === 'title') {
+      // Wrap the query in quotes for phrase matching
+      // This makes the search match the exact phrase in title or abstract
+      // which is more appropriate for finding papers by title
+      searchQuery = `"${params.query}"`;
     }
+
+    const response = await client.searchPapers({
+      keywords: searchQuery,
+      yearFrom: params.yearFrom,
+      yearTo: params.yearTo,
+      minCitations: params.minCitations,
+      openAccessOnly: params.openAccessOnly,
+      limit: params.limit,
+      offset: params.offset,
+    });
+
+    const papers: PaperSearchResult[] = (response.data || []).map(paper => ({
+      paperId: paper.paperId,
+      title: paper.title,
+      authors: paper.authors || [],
+      year: paper.year ?? null,
+      abstract: paper.abstract ?? null,
+      citationCount: paper.citationCount ?? null,
+      venue: paper.venue ?? null,
+      isOpenAccess: !!paper.openAccessPdf?.url,
+      openAccessPdfUrl: paper.openAccessPdf?.url ?? null,
+    }));
+    const total = response.total || 0;
 
     // 4. Return response
     return NextResponse.json({

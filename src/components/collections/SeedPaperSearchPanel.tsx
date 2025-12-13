@@ -116,15 +116,13 @@ export function SeedPaperSearchPanel({
     switch (searchType) {
       case 'title':
         return 'Enter paper title...';
-      case 'author':
-        return 'Enter author name...';
       default:
         return 'Enter keywords...';
     }
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Search Header */}
       <div className="space-y-3 border-b pb-3">
         <div className="flex items-center justify-between">
@@ -146,7 +144,6 @@ export function SeedPaperSearchPanel({
             <SelectContent>
               <SelectItem value="keywords">Keywords</SelectItem>
               <SelectItem value="title">Title</SelectItem>
-              <SelectItem value="author">Author</SelectItem>
             </SelectContent>
           </Select>
 
@@ -259,7 +256,7 @@ export function SeedPaperSearchPanel({
       {/* Results List */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 space-y-2 overflow-y-auto py-3"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto py-3"
       >
         {/* Initial loading state */}
         {isLoading && !results.length && (

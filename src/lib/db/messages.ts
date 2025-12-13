@@ -6,12 +6,25 @@ type MessageInsert = TablesInsert<'messages'>;
 /**
  * Grounding chunk from custom RAG
  * Contains the actual text that was retrieved and cited
+ * Supports both text chunks and figure chunks (multimodal RAG)
  */
 export interface GroundingChunk {
   retrievedContext?: {
     text: string;
     /** Paper ID for looking up paper metadata */
     paper_id?: string;
+    /** Chunk type: 'text' (default) or 'figure' */
+    chunk_type?: 'text' | 'figure';
+    /** Figure number (e.g., "Figure 1", "Table 2") - only for figure chunks */
+    figure_number?: string;
+    /** Figure caption from the paper - only for figure chunks */
+    figure_caption?: string;
+    /** Signed URL for figure image - only for figure chunks */
+    image_url?: string;
+    /** Page number where the figure appears - only for figure chunks */
+    page_number?: number;
+    /** Whether this is a related figure (not directly in search results) */
+    is_related?: boolean;
   };
 }
 

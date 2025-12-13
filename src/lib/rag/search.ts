@@ -12,6 +12,18 @@ export interface SearchResult {
   paperId: string;
   content: string;
   chunkIndex: number;
+  chunkType: 'text' | 'figure';
+  // Figure-specific fields (only present when chunkType === 'figure')
+  figureNumber?: string;
+  figureCaption?: string;
+  figureDescription?: string;
+  imageStoragePath?: string;
+  imageUrl?: string;
+  pageNumber?: number;
+  // Text chunk fields (for bidirectional linking)
+  referencedFigures?: string[];
+  mentionedInChunkIds?: string[];
+  // Scores
   semanticScore: number;
   keywordScore: number;
   combinedScore: number;
@@ -89,6 +101,14 @@ export async function hybridSearch(
       paper_id: string;
       content: string;
       chunk_index: number;
+      chunk_type: string;
+      figure_number: string | null;
+      figure_caption: string | null;
+      figure_description: string | null;
+      image_storage_path: string | null;
+      page_number: number | null;
+      referenced_figures: string[] | null;
+      mentioned_in_chunk_ids: string[] | null;
       semantic_score: number;
       keyword_score: number;
       combined_score: number;
@@ -97,6 +117,14 @@ export async function hybridSearch(
       paperId: row.paper_id,
       content: row.content,
       chunkIndex: row.chunk_index,
+      chunkType: (row.chunk_type || 'text') as 'text' | 'figure',
+      figureNumber: row.figure_number || undefined,
+      figureCaption: row.figure_caption || undefined,
+      figureDescription: row.figure_description || undefined,
+      imageStoragePath: row.image_storage_path || undefined,
+      pageNumber: row.page_number || undefined,
+      referencedFigures: row.referenced_figures || undefined,
+      mentionedInChunkIds: row.mentioned_in_chunk_ids || undefined,
       semanticScore: row.semantic_score,
       keywordScore: row.keyword_score,
       combinedScore: row.combined_score,

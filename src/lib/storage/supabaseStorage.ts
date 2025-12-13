@@ -430,3 +430,165 @@ export async function listTempSessionFiles(
 
   return files?.map(f => f.name) || [];
 }
+
+// ============================================
+// Figure Storage Functions (Multimodal RAG)
+// ============================================
+
+/**
+ * Generate storage path for a figure image
+ * Format: figures/{paperId}/{figureNumber}.png
+ */
+export function getFigureStoragePath(
+  paperId: string,
+  figureNumber: string
+): string {
+  // Sanitize figure number for use as filename
+  // "Figure 1" → "figure-1", "Table 2a" → "table-2a"
+  const safeFigureNumber = figureNumber
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+
+  return `figures/${paperId}/${safeFigureNumber}.png`;
+}
+
+/**
+ * Upload figure image to Supabase Storage
+ *
+ * @param imageBuffer - Figure image as PNG Buffer
+ * @param paperId - Paper ID
+ * @param figureNumber - Figure identifier (e.g., "Figure 1")
+ * @returns Storage path
+ * @throws Error if upload fails
+ */
+export async function uploadFigureImage(
+  imageBuffer: Buffer,
+  paperId: string,
+  figureNumber: string
+): Promise<string> {
+  const supabase = createAdminSupabaseClient();
+  const storagePath = getFigureStoragePath(paperId, figureNumber);
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .upload(storagePath, imageBuffer, {
+      contentType: 'image/png',
+      upsert: true, // Overwrite if exists
+    });
+
+  if (error) {
+    throw new Error(`Failed to upload figure image: ${error.message}`);
+  }
+
+  return data.path;
+}
+
+/**
+ * Get public URL for a figure image
+ *
+ * Note: This assumes the 'pdfs' bucket has public access enabled for the figures folder.
+ * If not, use getSignedFigureUrl instead.
+ *
+ * @param storagePath - Full storage path of the figure
+ * @returns Public URL for the figure image
+ */
+export function getFigurePublicUrl(storagePath: string): string {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured');
+  }
+
+  // Construct public URL
+  return `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${storagePath}`;
+}
+
+/**
+ * Get signed URL for a figure image (for private access)
+ *
+ * @param storagePath - Full storage path of the figure
+ * @param expiresIn - URL expiry time in seconds (default: 1 hour)
+ * @returns Signed URL for the figure image
+ */
+export async function getSignedFigureUrl(
+  storagePath: string,
+  expiresIn: number = DEFAULT_SIGNED_URL_EXPIRY
+): Promise<string> {
+  const supabase = createAdminSupabaseClient();
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUrl(storagePath, expiresIn);
+
+  if (error) {
+    throw new Error(
+      `Failed to generate signed URL for figure: ${error.message}`
+    );
+  }
+
+  if (!data.signedUrl) {
+    throw new Error('Signed URL is empty');
+  }
+
+  return data.signedUrl;
+}
+
+/**
+ * Delete a figure image from storage
+ *
+ * @param storagePath - Full storage path of the figure
+ */
+export async function deleteFigureImage(storagePath: string): Promise<void> {
+  const supabase = createAdminSupabaseClient();
+
+  const { error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .remove([storagePath]);
+
+  if (error) {
+    throw new Error(`Failed to delete figure image: ${error.message}`);
+  }
+}
+
+/**
+ * Delete all figure images for a paper
+ *
+ * @param paperId - Paper ID
+ * @returns Number of files deleted
+ */
+export async function deletePaperFigures(paperId: string): Promise<number> {
+  const supabase = createAdminSupabaseClient();
+  const folderPath = `figures/${paperId}`;
+
+  // List all files in the paper's figures folder
+  const { data: files, error: listError } = await supabase.storage
+    .from(BUCKET_NAME)
+    .list(folderPath);
+
+  if (listError) {
+    console.error(`Failed to list figures for paper ${paperId}:`, listError);
+    return 0;
+  }
+
+  if (!files || files.length === 0) {
+    return 0;
+  }
+
+  // Build full paths
+  const filePaths = files.map(file => `${folderPath}/${file.name}`);
+
+  // Delete all files
+  const { error: deleteError } = await supabase.storage
+    .from(BUCKET_NAME)
+    .remove(filePaths);
+
+  if (deleteError) {
+    console.error(
+      `Failed to delete figures for paper ${paperId}:`,
+      deleteError
+    );
+    return 0;
+  }
+
+  return files.length;
+}

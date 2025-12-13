@@ -19,6 +19,16 @@ export interface ChunkInsert {
   embedding: number[];
 }
 
+export interface ChunkInsertWithFigureRefs extends ChunkInsert {
+  referencedFigures: string[];
+}
+
+export interface InsertedChunkWithRefs {
+  id: string;
+  chunkIndex: number;
+  referencedFigures: string[];
+}
+
 export interface StoredChunk {
   id: string;
   paperId: string;
@@ -83,6 +93,102 @@ export async function insertChunks(chunks: ChunkInsert[]): Promise<void> {
   }
 
   console.log(`[Chunks DB] Inserted ${chunks.length} chunks`);
+}
+
+/**
+ * Insert text chunks with figure references into the database
+ *
+ * Enhanced version of insertChunks that:
+ * - Sets chunk_type to 'text'
+ * - Stores referenced_figures array
+ * - Returns inserted chunk IDs for use in figure processing
+ *
+ * @param chunks - Array of chunks with figure references to insert
+ * @returns Array of inserted chunks with their IDs
+ * @throws Error if insertion fails
+ *
+ * @example
+ * ```typescript
+ * const inserted = await insertChunksWithFigureRefs([
+ *   { paperId: 'abc123', collectionId: 'uuid', content: '...', chunkIndex: 0, tokenCount: 100, embedding: [...], referencedFigures: ['Figure 1'] }
+ * ]);
+ * // inserted = [{ id: 'chunk-uuid', chunkIndex: 0, referencedFigures: ['Figure 1'] }]
+ * ```
+ */
+export async function insertChunksWithFigureRefs(
+  chunks: ChunkInsertWithFigureRefs[]
+): Promise<InsertedChunkWithRefs[]> {
+  if (chunks.length === 0) {
+    return [];
+  }
+
+  const supabase = createAdminSupabaseClient();
+
+  // Transform to database format with figure references
+  const records = chunks.map(c => ({
+    paper_id: c.paperId,
+    collection_id: c.collectionId,
+    content: c.content,
+    chunk_index: c.chunkIndex,
+    token_count: c.tokenCount,
+    chunk_type: 'text',
+    referenced_figures: c.referencedFigures,
+    // pgvector expects array format - Supabase handles the conversion
+    embedding: JSON.stringify(c.embedding),
+  }));
+
+  const insertedChunks: InsertedChunkWithRefs[] = [];
+
+  // Insert in batches of 100 to avoid request size limits
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < records.length; i += BATCH_SIZE) {
+    const batch = records.slice(i, i + BATCH_SIZE);
+    const originalChunksBatch = chunks.slice(i, i + BATCH_SIZE);
+
+    // Use type assertion since paper_chunks table types may not include new columns yet
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from('paper_chunks')
+      .upsert(batch, {
+        onConflict: 'paper_id,collection_id,chunk_index',
+      })
+      .select('id, chunk_index, referenced_figures');
+
+    if (error) {
+      throw new Error(
+        `Failed to insert chunks with figure refs (batch ${Math.floor(i / BATCH_SIZE) + 1}): ${error.message}`
+      );
+    }
+
+    // Map returned data to our format
+    if (data) {
+      for (const row of data) {
+        insertedChunks.push({
+          id: row.id,
+          chunkIndex: row.chunk_index,
+          referencedFigures: row.referenced_figures || [],
+        });
+      }
+    } else {
+      // If no data returned (shouldn't happen with .select()), use original chunk info
+      for (const chunk of originalChunksBatch) {
+        insertedChunks.push({
+          id: '', // Will be empty, but processing can still continue
+          chunkIndex: chunk.chunkIndex,
+          referencedFigures: chunk.referencedFigures,
+        });
+      }
+    }
+  }
+
+  const withRefs = insertedChunks.filter(
+    c => c.referencedFigures.length > 0
+  ).length;
+  console.log(
+    `[Chunks DB] Inserted ${chunks.length} text chunks (${withRefs} with figure references)`
+  );
+
+  return insertedChunks;
 }
 
 /**

@@ -266,35 +266,59 @@ export type Database = {
       paper_chunks: {
         Row: {
           chunk_index: number;
+          chunk_type: string;
           collection_id: string;
           content: string;
           content_tsv: unknown;
           created_at: string | null;
           embedding: string;
+          figure_caption: string | null;
+          figure_description: string | null;
+          figure_number: string | null;
           id: string;
+          image_storage_path: string | null;
+          mentioned_in_chunk_ids: string[] | null;
+          page_number: number | null;
           paper_id: string;
+          referenced_figures: string[] | null;
           token_count: number;
         };
         Insert: {
           chunk_index: number;
+          chunk_type?: string;
           collection_id: string;
           content: string;
           content_tsv?: unknown;
           created_at?: string | null;
           embedding: string;
+          figure_caption?: string | null;
+          figure_description?: string | null;
+          figure_number?: string | null;
           id?: string;
+          image_storage_path?: string | null;
+          mentioned_in_chunk_ids?: string[] | null;
+          page_number?: number | null;
           paper_id: string;
+          referenced_figures?: string[] | null;
           token_count: number;
         };
         Update: {
           chunk_index?: number;
+          chunk_type?: string;
           collection_id?: string;
           content?: string;
           content_tsv?: unknown;
           created_at?: string | null;
           embedding?: string;
+          figure_caption?: string | null;
+          figure_description?: string | null;
+          figure_number?: string | null;
           id?: string;
+          image_storage_path?: string | null;
+          mentioned_in_chunk_ids?: string[] | null;
+          page_number?: number | null;
           paper_id?: string;
+          referenced_figures?: string[] | null;
           token_count?: number;
         };
         Relationships: [
@@ -407,10 +431,18 @@ export type Database = {
         Returns: {
           chunk_id: string;
           chunk_index: number;
+          chunk_type: string;
           combined_score: number;
           content: string;
+          figure_caption: string;
+          figure_description: string;
+          figure_number: string;
+          image_storage_path: string;
           keyword_score: number;
+          mentioned_in_chunk_ids: string[];
+          page_number: number;
           paper_id: string;
+          referenced_figures: string[];
           semantic_score: number;
         }[];
       };

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, FileText, ImageIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CitationCard, CitedPaper } from './CitationCard';
 import { CitedText } from './CitedText';
 import { SourceDetailDialog, PaperInfo } from './SourceDetailDialog';
+import { FigureInline } from './FigureInline';
 import { GroundingChunk } from '@/lib/db/messages';
 
 interface AssistantMessageProps {
@@ -43,6 +44,23 @@ export function AssistantMessage({
   const groundingChunks = groundingData?.chunks as GroundingChunk[] | undefined;
   // Check if this is new grounding-based citation format
   const hasGroundingData = groundingChunks && groundingChunks.length > 0;
+
+  // Separate text chunks from figure chunks
+  const textChunks =
+    groundingChunks?.filter(c => c.retrievedContext?.chunk_type !== 'figure') ||
+    [];
+  const figureChunks =
+    groundingChunks?.filter(
+      c =>
+        c.retrievedContext?.chunk_type === 'figure' &&
+        !c.retrievedContext?.is_related
+    ) || [];
+  const relatedFigureChunks =
+    groundingChunks?.filter(
+      c =>
+        c.retrievedContext?.chunk_type === 'figure' &&
+        c.retrievedContext?.is_related
+    ) || [];
 
   // Filter for legacy paper citations (paperId-based)
   const legacyPaperCitations = citedPapers.filter(p => p.paperId);
@@ -119,21 +137,73 @@ export function AssistantMessage({
 
         {/* Show grounding-based sources */}
         {hasGroundingData && groundingChunks && (
-          <div className="mt-3 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">
-              Sources ({groundingChunks.length})
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {groundingChunks.map((chunk, index) => (
-                <button
-                  key={index}
-                  className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
-                  onClick={() => handleSourceClick(chunk, index)}
-                >
-                  Source {index + 1}
-                </button>
-              ))}
-            </div>
+          <div className="mt-3 space-y-3">
+            {/* Text Sources */}
+            {textChunks.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5" />
+                  Text Sources ({textChunks.length})
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {textChunks.map((chunk, index) => (
+                    <button
+                      key={`text-${index}`}
+                      className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                      onClick={() =>
+                        handleSourceClick(chunk, groundingChunks.indexOf(chunk))
+                      }
+                    >
+                      Source {index + 1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Figure Sources */}
+            {figureChunks.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  Figures ({figureChunks.length})
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {figureChunks.map((chunk, index) => (
+                    <FigureInline
+                      key={`figure-${index}`}
+                      chunk={chunk}
+                      sourceIndex={index}
+                      paperMap={paperMap}
+                      collectionId={collectionId}
+                      compact
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Related Figures (from text references) */}
+            {relatedFigureChunks.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5 text-purple-500" />
+                  Related Figures ({relatedFigureChunks.length})
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {relatedFigureChunks.map((chunk, index) => (
+                    <FigureInline
+                      key={`related-${index}`}
+                      chunk={chunk}
+                      sourceIndex={index}
+                      paperMap={paperMap}
+                      collectionId={collectionId}
+                      isRelated
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

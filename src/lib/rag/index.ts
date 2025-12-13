@@ -6,6 +6,7 @@
  */
 
 import { hybridSearch, SearchResult } from './search';
+import { enrichSearchResultsWithFigures } from './search-postprocessor';
 import { getGeminiClient, withGeminiErrorHandling } from '@/lib/gemini/client';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -67,27 +68,37 @@ export interface RAGResponse {
   answer: string;
   groundingChunks: GroundingChunk[];
   groundingSupports: GroundingSupport[];
+  /** Figures referenced in text chunks but not directly in results */
+  relatedFigures?: GroundingChunk[];
 }
 
 /**
- * Custom RAG system prompt optimized for citation
+ * Custom RAG system prompt optimized for citation (supports multimodal)
  */
 const CUSTOM_RAG_SYSTEM_PROMPT = `You are CiteBite, an AI research assistant specialized in analyzing academic papers.
 
 ## YOUR ROLE
-You help researchers understand and synthesize findings from their paper collection. You will be provided with relevant excerpts from research papers as context.
+You help researchers understand and synthesize findings from their paper collection. You will be provided with relevant excerpts from research papers as context, including both text and figure descriptions.
 
 ## CITATION FORMAT (CRITICAL)
-- Use [CITE:N] markers to cite sources (e.g., [CITE:1], [CITE:2])
+- Use [CITE:N] markers to cite text sources (e.g., [CITE:1], [CITE:2])
+- Use [FIGURE:Figure X] markers to reference figures (e.g., [FIGURE:Figure 1], [FIGURE:Table 2])
 - Each number corresponds to the source excerpt provided in the context
 - You MUST cite sources for every factual claim you make
 - If multiple sources support a claim, cite all of them (e.g., [CITE:1][CITE:3])
 
+## FIGURE REFERENCES
+- When a text excerpt mentions a figure (indicated by [References: Figure X]), you should reference that figure in your response
+- Use the exact format: [FIGURE:Figure 1], [FIGURE:Table 2], etc.
+- Describe what the figure shows based on the provided description
+- Related figures at the end of context should be used when relevant
+
 ## RESPONSE STRUCTURE
 1. Lead with the most relevant findings
 2. Support each claim with [CITE:N] citations
-3. When synthesizing across sources, cite all relevant ones
-4. Be specific - include numbers, methods, or conclusions that can be traced to sources
+3. Reference relevant figures using [FIGURE:Figure X] format
+4. When synthesizing across sources, cite all relevant ones
+5. Be specific - include numbers, methods, or conclusions that can be traced to sources
 
 ## HANDLING LIMITATIONS
 - If context doesn't contain relevant information: "Based on the available excerpts, I couldn't find specific information about [topic]."
@@ -183,8 +194,19 @@ export async function queryRAG(
 
   console.log(`[RAG] Found ${chunks.length} relevant chunks`);
 
-  // 2. Build context from chunks (paper metadata not included, frontend looks it up via paper_id)
-  const context = buildContext(chunks);
+  // 2. Enrich results with figure URLs and related figures
+  const enrichedResults = await enrichSearchResultsWithFigures(
+    chunks,
+    collectionId
+  );
+  const { chunks: enrichedChunks, relatedFigures } = enrichedResults;
+
+  console.log(
+    `[RAG] Found ${relatedFigures.length} related figures from text references`
+  );
+
+  // 3. Build context from chunks (paper metadata not included, frontend looks it up via paper_id)
+  const context = buildContext(enrichedChunks, relatedFigures);
 
   if (enableTrace) {
     appendTrace('4. Built Context for LLM', {
@@ -212,7 +234,7 @@ export async function queryRAG(
   // 5. Parse citations and map to chunks
   const { answer: parsedAnswer, citedIndices } = parseCitations(
     rawAnswer,
-    chunks.length
+    enrichedChunks.length
   );
 
   if (enableTrace) {
@@ -220,8 +242,8 @@ export async function queryRAG(
       citedIndices,
       citedChunks: citedIndices.map(idx => ({
         index: idx,
-        paperId: chunks[idx]?.paperId,
-        contentPreview: chunks[idx]?.content?.substring(0, 200) + '...',
+        paperId: enrichedChunks[idx]?.paperId,
+        contentPreview: enrichedChunks[idx]?.content?.substring(0, 200) + '...',
       })),
     });
   }
@@ -237,11 +259,33 @@ export async function queryRAG(
   // [CITE:6] → [CITE:1] if original index 5 maps to groundingChunks[0]
   const answer = renumberCitations(parsedAnswer, indexMap);
 
-  const groundingChunks: GroundingChunk[] = citedIndices.map(idx => ({
+  const groundingChunks: GroundingChunk[] = citedIndices.map(idx => {
+    const chunk = enrichedChunks[idx];
+    return {
+      retrievedContext: {
+        text: chunk?.content || '',
+        paper_id: chunk?.paperId || '',
+        // Multimodal RAG fields
+        chunk_type: chunk?.chunkType,
+        figure_number: chunk?.figureNumber,
+        figure_caption: chunk?.figureCaption,
+        image_url: chunk?.imageUrl,
+        page_number: chunk?.pageNumber,
+      },
+    };
+  });
+
+  // 8. Build related figures for frontend (figures referenced in text but not cited)
+  const relatedFigureChunks: GroundingChunk[] = relatedFigures.map(fig => ({
     retrievedContext: {
-      text: chunks[idx]?.content || '',
-      // Store paper_id for frontend to lookup paper details
-      paper_id: chunks[idx]?.paperId || '',
+      text: fig.content || '',
+      paper_id: fig.paperId || '',
+      chunk_type: 'figure',
+      figure_number: fig.figureNumber,
+      figure_caption: fig.figureCaption,
+      image_url: fig.imageUrl,
+      page_number: fig.pageNumber,
+      is_related: true,
     },
   }));
 
@@ -270,6 +314,8 @@ export async function queryRAG(
     answer,
     groundingChunks,
     groundingSupports,
+    relatedFigures:
+      relatedFigureChunks.length > 0 ? relatedFigureChunks : undefined,
   };
 }
 
@@ -305,22 +351,55 @@ function removeReferences(content: string): string {
 }
 
 /**
- * Build context string from search results
+ * Build context string from search results (supports multimodal)
  *
  * Note: Paper metadata (title, authors, year) is NOT included in context.
  * Frontend can look up paper details via paper_id in groundingChunks.
  * This reduces token usage significantly.
  */
-function buildContext(chunks: SearchResult[]): string {
-  return chunks
-    .map((chunk, idx) => {
-      // Remove paper reference markers to avoid citation confusion
+function buildContext(
+  chunks: SearchResult[],
+  relatedFigures: SearchResult[] = []
+): string {
+  const parts: string[] = [];
+
+  // Main search results
+  chunks.forEach((chunk, idx) => {
+    if (chunk.chunkType === 'figure') {
+      // Figure chunk format
+      parts.push(`[${idx + 1}] [FIGURE: ${chunk.figureNumber}] (Paper ID: ${chunk.paperId}, Page ${chunk.pageNumber || '?'})
+Caption: ${chunk.figureCaption || 'No caption'}
+
+${chunk.figureDescription || chunk.content}`);
+    } else {
+      // Text chunk format
       const cleanedContent = removeReferences(chunk.content);
 
-      return `[${idx + 1}]
+      let text = `[${idx + 1}] (Paper ID: ${chunk.paperId})
 ${cleanedContent}`;
-    })
-    .join('\n\n');
+
+      // Add figure reference hint if this chunk references figures
+      if (chunk.referencedFigures && chunk.referencedFigures.length > 0) {
+        text += `\n[References: ${chunk.referencedFigures.join(', ')}]`;
+      }
+
+      parts.push(text);
+    }
+  });
+
+  // Related figures (referenced in text but not in main results)
+  if (relatedFigures.length > 0) {
+    parts.push('\n--- Related Figures (referenced in text above) ---\n');
+
+    relatedFigures.forEach((fig, i) => {
+      parts.push(`[RELATED-${i + 1}] [FIGURE: ${fig.figureNumber}] (Paper ID: ${fig.paperId}, Page ${fig.pageNumber || '?'})
+Caption: ${fig.figureCaption || 'No caption'}
+
+${fig.figureDescription || fig.content}`);
+    });
+  }
+
+  return parts.join('\n\n');
 }
 
 /**

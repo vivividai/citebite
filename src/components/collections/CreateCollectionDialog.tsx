@@ -148,7 +148,7 @@ export function CreateCollectionDialog() {
         </DialogHeader>
 
         {/* 2-column layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[600px] p-6 pt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[600px] p-6 pt-4 overflow-hidden">
           {/* Left: Search Panel */}
           <SeedPaperSearchPanel
             selectedPapers={selectedPapers}

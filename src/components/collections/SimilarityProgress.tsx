@@ -15,13 +15,15 @@ interface SimilarityProgressProps {
 
 /**
  * Get color class based on similarity score
- * - Green (80%+): High relevance
- * - Yellow (60-79%): Medium relevance
- * - Red (<60%): Low relevance
+ * - Blue (50%+): High relevance
+ * - Green (40-49%): Good relevance
+ * - Yellow (30-39%): Medium relevance
+ * - Red (<30%): Low relevance
  */
 function getSimilarityColor(similarity: number): string {
-  if (similarity >= 0.8) return 'bg-green-500';
-  if (similarity >= 0.6) return 'bg-yellow-500';
+  if (similarity >= 0.5) return 'bg-blue-500';
+  if (similarity >= 0.4) return 'bg-green-500';
+  if (similarity >= 0.3) return 'bg-yellow-500';
   return 'bg-red-500';
 }
 
@@ -69,9 +71,10 @@ export function SimilarityProgress({
         <span
           className={cn(
             'w-12 text-right text-sm font-medium tabular-nums',
-            similarity >= 0.8 && 'text-green-600',
-            similarity >= 0.6 && similarity < 0.8 && 'text-yellow-600',
-            similarity < 0.6 && 'text-red-600'
+            similarity >= 0.5 && 'text-blue-600',
+            similarity >= 0.4 && similarity < 0.5 && 'text-green-600',
+            similarity >= 0.3 && similarity < 0.4 && 'text-yellow-600',
+            similarity < 0.3 && 'text-red-600'
           )}
         >
           {percentage}%

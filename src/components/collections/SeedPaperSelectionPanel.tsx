@@ -60,7 +60,7 @@ export function SeedPaperSelectionPanel({
     selectedPapers.length > 0;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Collection Details */}
       <div className="space-y-4 border-b pb-4">
         {/* Collection Name */}
@@ -119,7 +119,7 @@ export function SeedPaperSelectionPanel({
       </div>
 
       {/* Selected Papers List */}
-      <div className="flex-1 space-y-2 overflow-y-auto pb-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-3">
         {selectedPapers.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-center">
             <p className="text-sm text-muted-foreground">

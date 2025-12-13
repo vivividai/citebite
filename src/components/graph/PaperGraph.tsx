@@ -34,7 +34,6 @@ import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import type { PaperPreview } from '@/lib/search/types';
 import toast from 'react-hot-toast';
-import * as d3 from 'd3-force';
 
 // Dynamic import for react-force-graph-2d (SSR not supported)
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -194,25 +193,16 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     };
   }, [graphData]);
 
-  // Configure force simulation for better node distribution
+  // Disable center force to prevent nodes from being pulled to center
   useEffect(() => {
     if (graphRef.current) {
-      // Disable center force to prevent nodes from being pulled to center
       graphRef.current.d3Force('center', null);
-
-      // Add repulsion force between nodes (negative = repulsion)
-      graphRef.current.d3Force('charge', d3.forceManyBody().strength(-150));
-
-      // Configure uniform link distance
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const linkForce = graphRef.current.d3Force('link') as any;
-      if (linkForce && typeof linkForce.distance === 'function') {
-        linkForce.distance(100); // Uniform link length for all connections
-      }
     }
   }, [graphData]);
 
-  // Position nodes radially - search nodes in center, expanded nodes outside
+  // Position nodes on concentric circles by degree
+  // degree 0 (seed papers) → innermost circle
+  // degree 1, 2, 3... → progressively larger circles
   const positionedData = useMemo(() => {
     if (!graphData) return { nodes: [], links: [] };
 
@@ -224,94 +214,108 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     const nodeMap = new Map<string, PositionedNode>();
     nodes.forEach(node => nodeMap.set(node.id, node));
 
-    // Calculate depth for each node by following sourcePaperId chain
-    const depthMap = new Map<string, number>();
-    const getDepth = (nodeId: string, visited = new Set<string>()): number => {
-      if (depthMap.has(nodeId)) return depthMap.get(nodeId)!;
-      if (visited.has(nodeId)) return 0; // Prevent cycles
-      visited.add(nodeId);
-
-      const node = nodeMap.get(nodeId);
-      if (!node || node.relationshipType === 'search') {
-        depthMap.set(nodeId, 0);
-        return 0;
-      }
-
-      const sourceId = node.sourcePaperId;
-      if (!sourceId || !nodeMap.has(sourceId)) {
-        depthMap.set(nodeId, 1);
-        return 1;
-      }
-
-      const depth = getDepth(sourceId, visited) + 1;
-      depthMap.set(nodeId, depth);
-      return depth;
+    // Use the degree field directly from the node data
+    // degree 0 = seed/search papers, degree 1+ = expanded papers
+    const getNodeDegree = (node: PositionedNode): number => {
+      return node.degree ?? 0;
     };
 
-    // Calculate depths for all nodes
-    nodes.forEach(node => getDepth(node.id));
-
-    // Get max depth for radius scaling
-    const maxDepth = Math.max(...Array.from(depthMap.values()), 1);
-
-    // Position search nodes (depth 0) in center cluster as regular polygon
-    // Use fx, fy to fix their positions (they won't move)
-    const searchNodes = nodes.filter(n => depthMap.get(n.id) === 0);
-    const centerRadius = Math.min(100, searchNodes.length * 15);
-    searchNodes.forEach((node, i) => {
-      if (searchNodes.length === 1) {
-        node.fx = 0;
-        node.fy = 0;
-      } else {
-        const angle = (2 * Math.PI * i) / searchNodes.length;
-        node.fx = Math.cos(angle) * centerRadius;
-        node.fy = Math.sin(angle) * centerRadius;
+    // Group nodes by degree
+    const nodesByDegree = new Map<number, PositionedNode[]>();
+    nodes.forEach(node => {
+      const degree = getNodeDegree(node);
+      if (!nodesByDegree.has(degree)) {
+        nodesByDegree.set(degree, []);
       }
+      nodesByDegree.get(degree)!.push(node);
     });
 
-    // Position expanded nodes by depth level (depth 1, then 2, then 3, ...)
-    for (let depth = 1; depth <= maxDepth; depth++) {
-      const nodesAtDepth = nodes.filter(n => depthMap.get(n.id) === depth);
+    // Get max degree for layout planning
+    const maxDegree = Math.max(...Array.from(nodesByDegree.keys()), 0);
 
-      // Group by source
-      const nodesBySource = new Map<string, PositionedNode[]>();
-      nodesAtDepth.forEach(node => {
-        const sourceId = node.sourcePaperId || 'unknown';
-        if (!nodesBySource.has(sourceId)) {
-          nodesBySource.set(sourceId, []);
+    // Define radii for each degree level (concentric circles)
+    const getRadiusForDegree = (degree: number): number => {
+      if (degree === 0) return 60; // Seed papers in center
+      return 60 + degree * 120; // Each degree adds 120px radius
+    };
+
+    // First pass: Position degree 0 nodes (seed papers) in center
+    const degree0Nodes = nodesByDegree.get(0) || [];
+    if (degree0Nodes.length === 1) {
+      degree0Nodes[0].fx = 0;
+      degree0Nodes[0].fy = 0;
+    } else {
+      const radius0 = getRadiusForDegree(0);
+      degree0Nodes.forEach((node, i) => {
+        const angle = (2 * Math.PI * i) / degree0Nodes.length;
+        node.fx = Math.cos(angle) * radius0;
+        node.fy = Math.sin(angle) * radius0;
+      });
+    }
+
+    // For higher degrees: distribute nodes evenly but grouped by parent
+    // Children of the same parent stay adjacent, positioned near parent's angle
+    for (let degree = 1; degree <= maxDegree; degree++) {
+      const nodesAtDegree = nodesByDegree.get(degree) || [];
+      if (nodesAtDegree.length === 0) continue;
+
+      const radius = getRadiusForDegree(degree);
+
+      // Group nodes by their parent (source)
+      const nodesByParent = new Map<string, PositionedNode[]>();
+      nodesAtDegree.forEach(node => {
+        const parentId = node.sourcePaperId || 'orphan';
+        if (!nodesByParent.has(parentId)) {
+          nodesByParent.set(parentId, []);
         }
-        nodesBySource.get(sourceId)!.push(node);
+        nodesByParent.get(parentId)!.push(node);
       });
 
-      // Position each group around its source, facing outward
-      nodesBySource.forEach((sourceNodes, sourceId) => {
-        const sourceNode = nodeMap.get(sourceId);
-        const sourceX = sourceNode?.x ?? 0;
-        const sourceY = sourceNode?.y ?? 0;
+      // Calculate each parent's angle and sort parents by angle
+      const parentGroups = Array.from(nodesByParent.entries()).map(
+        ([parentId, children]) => {
+          const parentNode = nodeMap.get(parentId);
+          const px = parentNode?.fx ?? parentNode?.x ?? 0;
+          const py = parentNode?.fy ?? parentNode?.y ?? 0;
+          const parentAngle = Math.atan2(py, px);
+          return { parentId, children, parentAngle };
+        }
+      );
 
-        // Calculate base angle: direction from center (0,0) to source node
-        // This ensures expanded nodes face outward, away from the center
-        const baseAngle = Math.atan2(sourceY, sourceX);
+      // Sort parent groups by their angle
+      parentGroups.sort((a, b) => a.parentAngle - b.parentAngle);
 
-        // Spread angle: narrower for deeper levels to avoid overlap
-        const spreadAngle = Math.PI / (2 + depth); // Gets narrower with depth
+      // Sequential sector allocation (no overlap guaranteed)
+      const totalChildren = nodesAtDegree.length;
+      const anglePerChild = (2 * Math.PI) / totalChildren;
 
-        // Radius scales with depth
-        const baseRadius = 120 + depth * 30;
-        const outerRadius = baseRadius + Math.random() * 40;
+      // Calculate unrotated sector centers (a_i) for each parent
+      let cumulative = 0;
+      const sectorCenters: number[] = [];
+      parentGroups.forEach(group => {
+        const center = (cumulative + group.children.length / 2) * anglePerChild;
+        sectorCenters.push(center);
+        cumulative += group.children.length;
+      });
 
-        sourceNodes.forEach((node, i) => {
-          // Distribute nodes within the spread angle, centered on baseAngle
-          const spreadOffset =
-            sourceNodes.length === 1
-              ? 0
-              : (i / (sourceNodes.length - 1) - 0.5) * spreadAngle;
-          const angle =
-            baseAngle + spreadOffset + (Math.random() * 0.15 - 0.075);
+      // Optimal rotation: minimize weighted sum of squared angular distances
+      let weightedSum = 0;
+      let totalWeight = 0;
+      parentGroups.forEach((group, i) => {
+        const weight = group.children.length;
+        weightedSum += weight * (group.parentAngle - sectorCenters[i]);
+        totalWeight += weight;
+      });
+      const optimalRotation = totalWeight > 0 ? weightedSum / totalWeight : 0;
 
-          // Set initial positions (force simulation will adjust)
-          node.x = sourceX + Math.cos(angle) * outerRadius;
-          node.y = sourceY + Math.sin(angle) * outerRadius;
+      // Place nodes with optimal rotation
+      let nodeIndex = 0;
+      parentGroups.forEach(group => {
+        group.children.forEach(node => {
+          const angle = optimalRotation + nodeIndex * anglePerChild;
+          node.fx = Math.cos(angle) * radius;
+          node.fy = Math.sin(angle) * radius;
+          nodeIndex++;
         });
       });
     }
@@ -323,24 +327,7 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       relationshipType: edge.relationshipType,
     }));
 
-    // Add virtual links between seed papers to keep them clustered
-    const seedNodes = nodes.filter(n => depthMap.get(n.id) === 0);
-    const seedLinks: Array<{
-      source: string;
-      target: string;
-      relationshipType: string;
-    }> = [];
-    for (let i = 0; i < seedNodes.length; i++) {
-      for (let j = i + 1; j < seedNodes.length; j++) {
-        seedLinks.push({
-          source: seedNodes[i].id,
-          target: seedNodes[j].id,
-          relationshipType: 'seed-connection',
-        });
-      }
-    }
-
-    return { nodes, links: [...links, ...seedLinks] };
+    return { nodes, links };
   }, [graphData]);
 
   // Draw node with appropriate shape
@@ -405,11 +392,6 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
       },
       ctx: CanvasRenderingContext2D
     ) => {
-      // Don't render seed-connection links (they're only for force calculation)
-      if (link.relationshipType === 'seed-connection') {
-        return;
-      }
-
       ctx.save();
 
       const isReference = link.relationshipType === 'reference';
@@ -699,8 +681,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
             }) as never
           }
           enableNodeDrag={false}
-          cooldownTicks={200}
-          d3AlphaDecay={0.01}
+          cooldownTicks={100}
+          d3AlphaDecay={0.02}
           d3VelocityDecay={0.3}
         />
       </CardContent>

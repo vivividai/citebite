@@ -240,9 +240,16 @@ export async function queryRAG(
   // Build grounding chunks from cited indices (unified format for text and figure)
   const groundingChunks: GroundingChunk[] = citedIndices.map(idx => {
     const chunk = chunks[idx];
+    // For figure chunks, prefer figureDescription (AI analysis) over content
+    // Content contains short format like "[Figure 1]\nCaption: ..."
+    // figureDescription contains detailed AI-generated analysis
+    const textContent =
+      chunk?.chunkType === 'figure' && chunk?.figureDescription
+        ? chunk.figureDescription
+        : chunk?.content || '';
     return {
       retrievedContext: {
-        text: chunk?.content || '',
+        text: textContent,
         paper_id: chunk?.paperId || '',
         // Chunk type info for frontend display
         chunk_type: chunk?.chunkType,

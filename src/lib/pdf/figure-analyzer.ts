@@ -195,11 +195,31 @@ export async function analyzeFigureWithProvidedContext(
       },
     });
 
+    const description = (response.text || '').trim();
+
+    // Debug logging for empty responses
+    if (!description) {
+      console.warn(
+        `[Figure Analyzer] Empty description for ${croppedFigure.figureNumber}:`,
+        {
+          hasResponse: !!response,
+          textLength: response.text?.length,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          candidates: (response as any).candidates?.map((c: any) => ({
+            finishReason: c.finishReason,
+            safetyRatings: c.safetyRatings,
+          })),
+          imageSize: croppedFigure.imageBuffer.length,
+          captionLength: croppedFigure.caption?.length,
+        }
+      );
+    }
+
     return {
       figureNumber: croppedFigure.figureNumber,
       normalizedFigureNumber: croppedFigure.normalizedFigureNumber,
       caption: croppedFigure.caption,
-      description: (response.text || '').trim(),
+      description,
       pageNumber: croppedFigure.pageNumber,
       imageBuffer: croppedFigure.imageBuffer,
       type: croppedFigure.type,

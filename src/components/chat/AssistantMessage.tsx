@@ -146,17 +146,18 @@ export function AssistantMessage({
                   Text Sources ({textChunks.length})
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {textChunks.map((chunk, index) => (
-                    <button
-                      key={`text-${index}`}
-                      className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
-                      onClick={() =>
-                        handleSourceClick(chunk, groundingChunks.indexOf(chunk))
-                      }
-                    >
-                      Source {index + 1}
-                    </button>
-                  ))}
+                  {textChunks.map(chunk => {
+                    const originalIndex = groundingChunks.indexOf(chunk);
+                    return (
+                      <button
+                        key={`text-${originalIndex}`}
+                        className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                        onClick={() => handleSourceClick(chunk, originalIndex)}
+                      >
+                        Source {originalIndex + 1}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -169,16 +170,19 @@ export function AssistantMessage({
                   Figures ({figureChunks.length})
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {figureChunks.map((chunk, index) => (
-                    <FigureInline
-                      key={`figure-${index}`}
-                      chunk={chunk}
-                      sourceIndex={index}
-                      paperMap={paperMap}
-                      collectionId={collectionId}
-                      compact
-                    />
-                  ))}
+                  {figureChunks.map(chunk => {
+                    const originalIndex = groundingChunks.indexOf(chunk);
+                    return (
+                      <FigureInline
+                        key={`figure-${originalIndex}`}
+                        chunk={chunk}
+                        sourceIndex={originalIndex}
+                        paperMap={paperMap}
+                        collectionId={collectionId}
+                        compact
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -191,16 +195,19 @@ export function AssistantMessage({
                   Related Figures ({relatedFigureChunks.length})
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {relatedFigureChunks.map((chunk, index) => (
-                    <FigureInline
-                      key={`related-${index}`}
-                      chunk={chunk}
-                      sourceIndex={index}
-                      paperMap={paperMap}
-                      collectionId={collectionId}
-                      isRelated
-                    />
-                  ))}
+                  {relatedFigureChunks.map(chunk => {
+                    const originalIndex = groundingChunks.indexOf(chunk);
+                    return (
+                      <FigureInline
+                        key={`related-${originalIndex}`}
+                        chunk={chunk}
+                        sourceIndex={originalIndex}
+                        paperMap={paperMap}
+                        collectionId={collectionId}
+                        isRelated
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}

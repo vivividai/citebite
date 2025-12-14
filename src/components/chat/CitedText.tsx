@@ -5,8 +5,10 @@ import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { ImageIcon, TableIcon, BarChart3, GitBranch } from 'lucide-react';
 import { GroundingChunk, GroundingSupport } from '@/lib/db/messages';
 import { SourceDetailDialog } from './SourceDetailDialog';
+import { FigureDialog } from './FigureInline';
 
 interface CitedTextProps {
   content: string;
@@ -27,24 +29,27 @@ interface CitedTextProps {
 }
 
 /**
- * Parse [CITE:N] markers from text and split into segments
- * Returns array of either plain text or citation references
+ * Segment types for parsed text
  */
-function parseTextWithCitations(
-  text: string
-): Array<
-  { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
-> {
-  const segments: Array<
-    { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
-  > = [];
-  const citeRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]/g;
+type TextSegment =
+  | { type: 'text'; content: string }
+  | { type: 'cite'; indices: number[] }
+  | { type: 'figure'; figureRef: string };
+
+/**
+ * Parse [CITE:N] and [FIGURE:xxx] markers from text and split into segments
+ * Returns array of text, citation references, or figure references
+ */
+function parseTextWithCitations(text: string): Array<TextSegment> {
+  const segments: Array<TextSegment> = [];
+  // Combined regex for both [CITE:N] and [FIGURE:xxx] patterns
+  const markerRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]|\[FIGURE:([^\]]+)\]/g;
 
   let lastIndex = 0;
   let match;
 
-  while ((match = citeRegex.exec(text)) !== null) {
-    // Add text before this citation
+  while ((match = markerRegex.exec(text)) !== null) {
+    // Add text before this marker
     if (match.index > lastIndex) {
       segments.push({
         type: 'text',
@@ -52,17 +57,26 @@ function parseTextWithCitations(
       });
     }
 
-    // Parse citation indices - convert 1-indexed [CITE:N] to 0-indexed array access
-    // [CITE:1] → index 0, [CITE:2] → index 1, etc.
-    const indices = match[1]
-      .split(',')
-      .map(n => parseInt(n.trim(), 10) - 1) // Convert to 0-indexed
-      .filter(n => !isNaN(n) && n >= 0);
+    if (match[1]) {
+      // This is a [CITE:N] marker
+      // Parse citation indices - convert 1-indexed [CITE:N] to 0-indexed array access
+      // [CITE:1] → index 0, [CITE:2] → index 1, etc.
+      const indices = match[1]
+        .split(',')
+        .map(n => parseInt(n.trim(), 10) - 1) // Convert to 0-indexed
+        .filter(n => !isNaN(n) && n >= 0);
 
-    if (indices.length > 0) {
+      if (indices.length > 0) {
+        segments.push({
+          type: 'cite',
+          indices,
+        });
+      }
+    } else if (match[2]) {
+      // This is a [FIGURE:xxx] marker
       segments.push({
-        type: 'cite',
-        indices,
+        type: 'figure',
+        figureRef: match[2].trim(),
       });
     }
 
@@ -78,6 +92,19 @@ function parseTextWithCitations(
   }
 
   return segments;
+}
+
+/**
+ * Get icon component for figure type based on figure number string
+ */
+function getFigureIcon(figureNumber?: string) {
+  if (!figureNumber) return ImageIcon;
+
+  const lower = figureNumber.toLowerCase();
+  if (lower.includes('table')) return TableIcon;
+  if (lower.includes('chart')) return BarChart3;
+  if (lower.includes('diagram') || lower.includes('scheme')) return GitBranch;
+  return ImageIcon;
 }
 
 /**
@@ -107,17 +134,43 @@ function CitationNumber({
 }
 
 /**
- * Context for passing citation click handler through markdown components
+ * Clickable figure reference component
+ * Renders an inline badge that opens the figure modal when clicked
+ */
+function FigureReference({
+  figureRef,
+  onFigureClick,
+}: {
+  figureRef: string;
+  onFigureClick: (figureRef: string) => void;
+}) {
+  const FigureIcon = getFigureIcon(figureRef);
+
+  return (
+    <button
+      onClick={() => onFigureClick(figureRef)}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded transition-colors cursor-pointer align-middle mx-0.5"
+      title={`View ${figureRef}`}
+    >
+      <FigureIcon className="h-3 w-3" />
+      <span>{figureRef}</span>
+    </button>
+  );
+}
+
+/**
+ * Context for passing citation and figure click handlers through markdown components
  */
 interface CitationContextValue {
   chunks: GroundingChunk[];
   onCitationClick: (index: number) => void;
+  onFigureClick: (figureRef: string) => void;
 }
 
 const CitationContext = React.createContext<CitationContextValue | null>(null);
 
 /**
- * Text node renderer that handles [CITE:N] markers
+ * Text node renderer that handles [CITE:N] and [FIGURE:xxx] markers
  */
 function CitedTextNode({ children }: { children: string }) {
   const ctx = React.useContext(CitationContext);
@@ -131,17 +184,34 @@ function CitedTextNode({ children }: { children: string }) {
         if (segment.type === 'text') {
           return <Fragment key={idx}>{segment.content}</Fragment>;
         }
-        // Filter to valid indices
-        const validIndices = segment.indices.filter(i => i < ctx.chunks.length);
-        if (validIndices.length === 0) return null;
 
-        return (
-          <CitationNumber
-            key={idx}
-            indices={validIndices}
-            onCitationClick={ctx.onCitationClick}
-          />
-        );
+        if (segment.type === 'cite') {
+          // Filter to valid indices
+          const validIndices = segment.indices.filter(
+            i => i < ctx.chunks.length
+          );
+          if (validIndices.length === 0) return null;
+
+          return (
+            <CitationNumber
+              key={idx}
+              indices={validIndices}
+              onCitationClick={ctx.onCitationClick}
+            />
+          );
+        }
+
+        if (segment.type === 'figure') {
+          return (
+            <FigureReference
+              key={idx}
+              figureRef={segment.figureRef}
+              onFigureClick={ctx.onFigureClick}
+            />
+          );
+        }
+
+        return null;
       })}
     </>
   );
@@ -288,8 +358,8 @@ function createMarkdownComponents(): Components {
 /**
  * CitedText component renders markdown with clickable citation markers
  *
- * Parses [CITE:N] markers in the text and renders them as clickable numbers
- * that open a dialog showing the source content.
+ * Parses [CITE:N] and [FIGURE:xxx] markers in the text and renders them
+ * as clickable elements that open dialogs showing the source content.
  */
 export function CitedText({
   content,
@@ -297,20 +367,56 @@ export function CitedText({
   paperMap,
   collectionId,
 }: CitedTextProps) {
+  // State for text source dialog
   const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
     null
   );
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
+  // State for figure dialog
+  const [selectedFigureChunk, setSelectedFigureChunk] =
+    useState<GroundingChunk | null>(null);
+  const [selectedFigureIndex, setSelectedFigureIndex] = useState<number>(0);
+  const [isFigureDialogOpen, setIsFigureDialogOpen] = useState(false);
+  const [figureImageError, setFigureImageError] = useState(false);
+
   // Create markdown components
   const components = useMemo(() => createMarkdownComponents(), []);
+
+  // Get figure chunks for matching
+  const figureChunks = useMemo(
+    () =>
+      groundingChunks.filter(c => c.retrievedContext?.chunk_type === 'figure'),
+    [groundingChunks]
+  );
 
   const handleCitationClick = (index: number) => {
     if (index >= 0 && index < groundingChunks.length) {
       setSelectedChunk(groundingChunks[index]);
       setSelectedIndex(index);
       setIsDialogOpen(true);
+    }
+  };
+
+  const handleFigureClick = (figureRef: string) => {
+    // Find the figure chunk that matches the figure reference
+    // The figureRef is like "Figure 1" which should match figure_number
+    const normalizedRef = figureRef.toLowerCase().trim();
+
+    const matchingChunk = figureChunks.find(chunk => {
+      const figureNumber = chunk.retrievedContext?.figure_number
+        ?.toLowerCase()
+        .trim();
+      return figureNumber === normalizedRef;
+    });
+
+    if (matchingChunk) {
+      const figureIndex = figureChunks.indexOf(matchingChunk);
+      setSelectedFigureChunk(matchingChunk);
+      setSelectedFigureIndex(figureIndex);
+      setFigureImageError(false);
+      setIsFigureDialogOpen(true);
     }
   };
 
@@ -323,11 +429,25 @@ export function CitedText({
     );
   }
 
-  // Context value for citation handling
+  // Context value for citation and figure handling
   const contextValue: CitationContextValue = {
     chunks: groundingChunks,
     onCitationClick: handleCitationClick,
+    onFigureClick: handleFigureClick,
   };
+
+  // Get paper info for selected figure
+  const selectedFigurePaperId = selectedFigureChunk?.retrievedContext?.paper_id;
+  const selectedFigurePaper =
+    selectedFigurePaperId && paperMap
+      ? paperMap.get(selectedFigurePaperId)
+      : null;
+  const figureAuthorsStr = selectedFigurePaper?.authors
+    ? selectedFigurePaper.authors
+        .map(a => a.name)
+        .slice(0, 2)
+        .join(', ') + (selectedFigurePaper.authors.length > 2 ? ' et al.' : '')
+    : null;
 
   return (
     <>
@@ -337,7 +457,7 @@ export function CitedText({
         </ReactMarkdown>
       </CitationContext.Provider>
 
-      {/* Source Detail Dialog */}
+      {/* Source Detail Dialog (for text chunks) */}
       <SourceDetailDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
@@ -346,6 +466,21 @@ export function CitedText({
         paperMap={paperMap}
         collectionId={collectionId}
       />
+
+      {/* Figure Dialog (for figure chunks) */}
+      {selectedFigureChunk && (
+        <FigureDialog
+          open={isFigureDialogOpen}
+          onOpenChange={setIsFigureDialogOpen}
+          chunk={selectedFigureChunk}
+          sourceIndex={selectedFigureIndex}
+          paper={selectedFigurePaper}
+          authorsStr={figureAuthorsStr}
+          collectionId={collectionId}
+          imageError={figureImageError}
+          setImageError={setFigureImageError}
+        />
+      )}
     </>
   );
 }

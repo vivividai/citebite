@@ -230,9 +230,9 @@ export function FigureInline({
 }
 
 /**
- * Figure detail dialog
+ * Figure detail dialog props
  */
-interface FigureDialogProps {
+export interface FigureDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   chunk: GroundingChunk;
@@ -244,7 +244,10 @@ interface FigureDialogProps {
   setImageError: (error: boolean) => void;
 }
 
-function FigureDialog({
+/**
+ * Figure detail dialog - displays a figure in a modal with full details
+ */
+export function FigureDialog({
   open,
   onOpenChange,
   chunk,

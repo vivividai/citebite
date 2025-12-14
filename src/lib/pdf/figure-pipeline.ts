@@ -3,6 +3,10 @@
  *
  * Orchestrates the complete figure extraction and analysis workflow:
  * PDF → Render Pages → Detect Figures → Crop → Analyze → Store
+ *
+ * Supports two detection strategies:
+ * - gemini: Uses Gemini Vision API (default, slower but more accurate)
+ * - pdffigures2: Uses pdffigures2 Docker container (faster, no API calls)
  */
 
 import { renderPdfPagesStream, RenderedPage } from './renderer';
@@ -16,6 +20,12 @@ import {
   findChunksForMultipleFigures,
   RelatedTextChunk,
 } from './figure-context';
+import {
+  detectFigures,
+  DetectionStrategy,
+  toPageAnalyses,
+  getDetectionStrategy,
+} from './figure-detection-strategy';
 
 export interface FigurePipelineOptions {
   /** Max concurrent Vision API calls for detection */
@@ -26,6 +36,10 @@ export interface FigurePipelineOptions {
   renderDpi: number;
   /** Skip pages with no figures detected */
   skipEmptyPages: boolean;
+  /** Detection strategy: 'gemini' (default) or 'pdffigures2' */
+  detectionStrategy?: DetectionStrategy;
+  /** Skip Gemini analysis phase (just crop images, faster for testing) */
+  skipAnalysis?: boolean;
   /** Progress callback */
   onProgress?: (progress: PipelineProgress) => void;
 }
@@ -108,28 +122,38 @@ export async function processPdfFigures(
     });
   }
 
-  // Phase 2: Detect figures in batches
-  for (let i = 0; i < pages.length; i += opts.detectionConcurrency) {
-    const batch = pages.slice(i, i + opts.detectionConcurrency);
+  // Phase 2: Detect figures using configured strategy
+  const strategy = opts.detectionStrategy || getDetectionStrategy();
 
-    const batchAnalyses = await Promise.all(
-      batch.map(page => detectFiguresInPage(page.imageBuffer, page.pageNumber))
-    );
+  opts.onProgress?.({
+    phase: 'detecting',
+    current: 0,
+    total: pages.length,
+    message: `Detecting figures using ${strategy} strategy...`,
+  });
 
-    pageAnalyses.push(...batchAnalyses);
+  const detectionResult = await detectFigures(pdfBuffer, pages, {
+    strategy,
+    concurrency: opts.detectionConcurrency,
+    onProgress: (current, total) => {
+      opts.onProgress?.({
+        phase: 'detecting',
+        current,
+        total,
+        message: `Detecting figures: ${current}/${total} pages`,
+      });
+    },
+  });
 
-    opts.onProgress?.({
-      phase: 'detecting',
-      current: Math.min(i + opts.detectionConcurrency, pages.length),
-      total: pages.length,
-      message: `Detecting figures: ${i + batch.length}/${pages.length} pages`,
-    });
+  // Convert detection result to page analyses
+  pageAnalyses.push(...toPageAnalyses(detectionResult));
 
-    // Rate limit delay
-    if (i + opts.detectionConcurrency < pages.length) {
-      await delay(300);
-    }
-  }
+  opts.onProgress?.({
+    phase: 'detecting',
+    current: pages.length,
+    total: pages.length,
+    message: `Detected ${detectionResult.totalFigures} figures using ${strategy}`,
+  });
 
   // Phase 3: Extract (crop) figures
   for (const page of pages) {
@@ -154,40 +178,71 @@ export async function processPdfFigures(
     });
   }
 
-  // Phase 4: Get text context for all figures at once
-  const figureNumbers = allCroppedFigures.map(f => f.normalizedFigureNumber);
-  const figureContextMap = await findChunksForMultipleFigures(
-    paperId,
-    collectionId,
-    figureNumbers
-  );
-
-  // Phase 5: Analyze figures
+  // Phase 4 & 5: Get context and analyze figures (or skip if skipAnalysis)
   const analyzedFigures: FigureAnalysis[] = [];
 
-  for (let i = 0; i < allCroppedFigures.length; i += opts.analysisConcurrency) {
-    const batch = allCroppedFigures.slice(i, i + opts.analysisConcurrency);
-
-    const batchAnalyses = await Promise.all(
-      batch.map(figure => {
-        const context =
-          figureContextMap.get(figure.normalizedFigureNumber) || [];
-        return analyzeFigureWithProvidedContext(figure, context);
-      })
-    );
-
-    analyzedFigures.push(...batchAnalyses);
-
+  if (opts.skipAnalysis) {
+    // Skip analysis - convert cropped figures to FigureAnalysis with placeholder values
     opts.onProgress?.({
       phase: 'analyzing',
-      current: analyzedFigures.length,
+      current: 0,
       total: allCroppedFigures.length,
-      message: `Analyzing figures: ${analyzedFigures.length}/${allCroppedFigures.length}`,
+      message: 'Skipping analysis phase (--skip-analysis)',
     });
 
-    // Rate limit delay
-    if (i + opts.analysisConcurrency < allCroppedFigures.length) {
-      await delay(500);
+    for (const cropped of allCroppedFigures) {
+      analyzedFigures.push({
+        figureNumber: cropped.figureNumber,
+        normalizedFigureNumber: cropped.normalizedFigureNumber,
+        caption: cropped.caption,
+        type: cropped.type,
+        pageNumber: cropped.pageNumber,
+        imageBuffer: cropped.imageBuffer,
+        boundingBox: cropped.boundingBox,
+        description: '(Analysis skipped)',
+        summary: '(Analysis skipped)',
+        keyDataPoints: [],
+        visualElements: [],
+        contextualReferences: [],
+      });
+    }
+  } else {
+    // Full analysis flow
+    const figureNumbers = allCroppedFigures.map(f => f.normalizedFigureNumber);
+    const figureContextMap = await findChunksForMultipleFigures(
+      paperId,
+      collectionId,
+      figureNumbers
+    );
+
+    for (
+      let i = 0;
+      i < allCroppedFigures.length;
+      i += opts.analysisConcurrency
+    ) {
+      const batch = allCroppedFigures.slice(i, i + opts.analysisConcurrency);
+
+      const batchAnalyses = await Promise.all(
+        batch.map(figure => {
+          const context =
+            figureContextMap.get(figure.normalizedFigureNumber) || [];
+          return analyzeFigureWithProvidedContext(figure, context);
+        })
+      );
+
+      analyzedFigures.push(...batchAnalyses);
+
+      opts.onProgress?.({
+        phase: 'analyzing',
+        current: analyzedFigures.length,
+        total: allCroppedFigures.length,
+        message: `Analyzing figures: ${analyzedFigures.length}/${allCroppedFigures.length}`,
+      });
+
+      // Rate limit delay
+      if (i + opts.analysisConcurrency < allCroppedFigures.length) {
+        await delay(500);
+      }
     }
   }
 

@@ -8,11 +8,10 @@
  *   tsx scripts/start-workers.ts
  */
 
-import { startAllWorkers } from '../../src/lib/jobs/workers';
-
-// Load environment variables
-import dotenv from 'dotenv';
-dotenv.config({ path: '.env.local' });
+// Load environment variables FIRST before importing any modules
+// Must use require() because ES module imports are hoisted
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('dotenv').config({ path: '.env.local' });
 
 console.log('=================================');
 console.log('CiteBite Background Workers');
@@ -29,11 +28,16 @@ console.log(
   `Redis URL: ${process.env.REDIS_URL.split('@')[1] || 'configured'}`
 );
 console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log(
+  `Multimodal RAG: ${process.env.ENABLE_MULTIMODAL_RAG !== 'false' ? 'enabled' : 'disabled'}`
+);
 console.log('=================================\n');
 
 // Start all workers
 async function main() {
   try {
+    // Dynamic import AFTER dotenv is loaded
+    const { startAllWorkers } = await import('../../src/lib/jobs/workers');
     await startAllWorkers();
     console.log('\n✓ All workers started successfully');
     console.log('Press Ctrl+C to stop workers\n');

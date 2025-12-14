@@ -87,7 +87,7 @@ export async function detectFiguresInPage(
     const client = getGeminiClient();
 
     const response = await client.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-pro',
       contents: [
         {
           role: 'user',

@@ -120,43 +120,32 @@ export async function getUserCollections(
   // For each collection, get paper counts
   const collectionsWithCounts = await Promise.all(
     collections.map(async collection => {
-      // Get total papers for this collection
-      const { count: totalPapers, error: totalError } = await supabase
+      // Get paper IDs for this collection
+      const { data: collectionPapers } = await supabase
         .from('collection_papers')
-        .select('*', { count: 'exact', head: true })
+        .select('paper_id')
         .eq('collection_id', collection.id);
 
-      if (totalError) {
-        console.error(
-          `Failed to get total papers for collection ${collection.id}:`,
-          totalError
-        );
-      }
+      const paperIds = (collectionPapers || []).map(cp => cp.paper_id);
+      const totalPapers = paperIds.length;
+      let indexedPapers = 0;
 
-      // Get indexed papers for this collection
-      const { count: indexedPapers, error: indexedError } = await supabase
-        .from('collection_papers')
-        .select(
-          'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
-          {
-            count: 'exact',
-            head: true,
-          }
-        )
-        .eq('collection_id', collection.id)
-        .eq('papers.vector_status', 'completed');
+      if (paperIds.length > 0) {
+        // Query papers table directly
+        const { data: papers } = await supabase
+          .from('papers')
+          .select('vector_status')
+          .in('paper_id', paperIds);
 
-      if (indexedError) {
-        console.error(
-          `Failed to get indexed papers for collection ${collection.id}:`,
-          indexedError
-        );
+        (papers || []).forEach(p => {
+          if (p.vector_status === 'completed') indexedPapers++;
+        });
       }
 
       return {
         ...collection,
-        totalPapers: totalPapers || 0,
-        indexedPapers: indexedPapers || 0,
+        totalPapers,
+        indexedPapers,
       };
     })
   );
@@ -179,64 +168,43 @@ export async function getCollectionById(
     userId
   );
 
-  // Get total papers for this collection
-  const { count: totalPapers, error: totalError } = await supabase
+  // Get paper IDs for this collection
+  const { data: collectionPapers, error: cpError } = await supabase
     .from('collection_papers')
-    .select('*', { count: 'exact', head: true })
+    .select('paper_id')
     .eq('collection_id', collection.id);
 
-  if (totalError) {
-    console.error(
-      `Failed to get total papers for collection ${collection.id}:`,
-      totalError
-    );
+  if (cpError) {
+    console.error(`Failed to get collection papers: ${cpError.message}`);
   }
 
-  // Get indexed papers for this collection
-  const { count: indexedPapers, error: indexedError } = await supabase
-    .from('collection_papers')
-    .select(
-      'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
-      {
-        count: 'exact',
-        head: true,
-      }
-    )
-    .eq('collection_id', collection.id)
-    .eq('papers.vector_status', 'completed');
+  const paperIds = (collectionPapers || []).map(cp => cp.paper_id);
+  const totalPapers = paperIds.length;
+  let indexedPapers = 0;
+  let failedPapers = 0;
 
-  if (indexedError) {
-    console.error(
-      `Failed to get indexed papers for collection ${collection.id}:`,
-      indexedError
-    );
-  }
+  if (paperIds.length > 0) {
+    // Query papers table directly for status counts
+    const { data: papers, error: papersError } = await supabase
+      .from('papers')
+      .select('vector_status')
+      .in('paper_id', paperIds);
 
-  // Get failed papers count
-  const { count: failedPapers, error: failedError } = await supabase
-    .from('collection_papers')
-    .select(
-      'paper_id, papers:papers!collection_papers_paper_id_fkey(vector_status)',
-      {
-        count: 'exact',
-        head: true,
-      }
-    )
-    .eq('collection_id', collection.id)
-    .eq('papers.vector_status', 'failed');
+    if (papersError) {
+      console.error(`Failed to get papers: ${papersError.message}`);
+    }
 
-  if (failedError) {
-    console.error(
-      `Failed to get failed papers for collection ${collection.id}:`,
-      failedError
-    );
+    (papers || []).forEach(p => {
+      if (p.vector_status === 'completed') indexedPapers++;
+      else if (p.vector_status === 'failed') failedPapers++;
+    });
   }
 
   return {
     ...collection,
-    totalPapers: totalPapers || 0,
-    indexedPapers: indexedPapers || 0,
-    failedPapers: failedPapers || 0,
+    totalPapers,
+    indexedPapers,
+    failedPapers,
   };
 }
 

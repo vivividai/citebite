@@ -248,8 +248,12 @@ export function convertToDetectedFigures(
       renderedDpi
     );
 
+    // Construct full figure number with type prefix (e.g., "Figure 3", "Table 2")
+    // pdffigures2 returns just the number in 'name' field, so we prepend the type
+    const fullFigureNumber = `${fig.figType} ${fig.name}`;
+
     const detectedFigure: DetectedFigure = {
-      figureNumber: fig.name,
+      figureNumber: fullFigureNumber,
       caption: fig.caption,
       boundingBox,
       type: convertFigureType(fig.figType),

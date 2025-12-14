@@ -51,3 +51,6 @@ next-env.d.ts
 data/
 eval-results/*.json
 eval-results/*-checkpoint.json
+
+# Temp files
+docs/temp/

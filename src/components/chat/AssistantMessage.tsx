@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, FileText, ImageIcon } from 'lucide-react';
+import { Bot, FileText } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,7 +10,6 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CitationCard, CitedPaper } from './CitationCard';
 import { CitedText } from './CitedText';
 import { SourceDetailDialog, PaperInfo } from './SourceDetailDialog';
-import { FigureInline } from './FigureInline';
 import { GroundingChunk } from '@/lib/db/messages';
 
 interface AssistantMessageProps {
@@ -44,23 +43,6 @@ export function AssistantMessage({
   const groundingChunks = groundingData?.chunks as GroundingChunk[] | undefined;
   // Check if this is new grounding-based citation format
   const hasGroundingData = groundingChunks && groundingChunks.length > 0;
-
-  // Separate text chunks from figure chunks
-  const textChunks =
-    groundingChunks?.filter(c => c.retrievedContext?.chunk_type !== 'figure') ||
-    [];
-  const figureChunks =
-    groundingChunks?.filter(
-      c =>
-        c.retrievedContext?.chunk_type === 'figure' &&
-        !c.retrievedContext?.is_related
-    ) || [];
-  const relatedFigureChunks =
-    groundingChunks?.filter(
-      c =>
-        c.retrievedContext?.chunk_type === 'figure' &&
-        c.retrievedContext?.is_related
-    ) || [];
 
   // Filter for legacy paper citations (paperId-based)
   const legacyPaperCitations = citedPapers.filter(p => p.paperId);
@@ -135,82 +117,24 @@ export function AssistantMessage({
           <span className="text-xs text-muted-foreground mt-1">{timeAgo}</span>
         )}
 
-        {/* Show grounding-based sources */}
+        {/* Show unified sources list */}
         {hasGroundingData && groundingChunks && (
-          <div className="mt-3 space-y-3">
-            {/* Text Sources */}
-            {textChunks.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <FileText className="h-3.5 w-3.5" />
-                  Text Sources ({textChunks.length})
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {textChunks.map(chunk => {
-                    const originalIndex = groundingChunks.indexOf(chunk);
-                    return (
-                      <button
-                        key={`text-${originalIndex}`}
-                        className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
-                        onClick={() => handleSourceClick(chunk, originalIndex)}
-                      >
-                        Source {originalIndex + 1}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Figure Sources */}
-            {figureChunks.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <ImageIcon className="h-3.5 w-3.5" />
-                  Figures ({figureChunks.length})
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {figureChunks.map(chunk => {
-                    const originalIndex = groundingChunks.indexOf(chunk);
-                    return (
-                      <FigureInline
-                        key={`figure-${originalIndex}`}
-                        chunk={chunk}
-                        sourceIndex={originalIndex}
-                        paperMap={paperMap}
-                        collectionId={collectionId}
-                        compact
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Related Figures (from text references) */}
-            {relatedFigureChunks.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <ImageIcon className="h-3.5 w-3.5 text-purple-500" />
-                  Related Figures ({relatedFigureChunks.length})
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {relatedFigureChunks.map(chunk => {
-                    const originalIndex = groundingChunks.indexOf(chunk);
-                    return (
-                      <FigureInline
-                        key={`related-${originalIndex}`}
-                        chunk={chunk}
-                        sourceIndex={originalIndex}
-                        paperMap={paperMap}
-                        collectionId={collectionId}
-                        isRelated
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              Sources ({groundingChunks.length})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {groundingChunks.map((chunk, index) => (
+                <button
+                  key={`source-${index}`}
+                  className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                  onClick={() => handleSourceClick(chunk, index)}
+                >
+                  Source {index + 1}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -231,7 +155,7 @@ export function AssistantMessage({
         )}
       </div>
 
-      {/* Source Detail Dialog */}
+      {/* Source Detail Dialog (handles both text and figure chunks) */}
       <SourceDetailDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}

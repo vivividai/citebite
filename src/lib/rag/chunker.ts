@@ -33,13 +33,13 @@ export interface ChunkWithFigureRefs extends Chunk {
 /**
  * Default chunking configuration (optimized for research papers)
  *
- * - 4096 chars ≈ 1024 tokens (optimal for academic content per NVIDIA research)
- * - 600 char overlap ≈ 150 tokens (15% overlap - best performing in benchmarks)
+ * - 3072 chars ≈ 768 tokens (balanced for precision and context)
+ * - 450 char overlap ≈ 112 tokens (15% overlap - best performing in benchmarks)
  * - 100 char minimum prevents tiny fragments
  */
 export const DEFAULT_CHUNK_CONFIG: ChunkConfig = {
-  maxChars: 4096,
-  overlapChars: 600,
+  maxChars: 3072,
+  overlapChars: 450,
   minChars: 100,
 };
 

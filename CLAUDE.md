@@ -360,7 +360,7 @@ For detailed implementation checklist with ~110 testable tasks, E2E test checkpo
 
 ## Common Pitfalls to Avoid
 
-1. **Don't embed entire papers** - Use proper chunking strategy (4096 chars max with 600 char overlap), very large PDFs may fail processing (respect 100MB limit)
+1. **Don't embed entire papers** - Use proper chunking strategy (3072 chars max with 450 char overlap, ≈768 tokens), very large PDFs may fail processing (respect 100MB limit)
 2. **Don't forget conversation context** - Include last 5-10 messages in LLM prompt to maintain conversation continuity
 3. **Don't hard-delete conversations or collections** - Implement soft delete with recovery option
 4. **Don't skip deduplication** - Same paper can appear in multiple collections (check duplicates by Semantic Scholar paper ID)

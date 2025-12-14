@@ -1,16 +1,11 @@
 /**
  * Figure Detection Strategy
  *
- * Provides a strategy pattern for selecting between different
- * figure detection methods (Gemini Vision API vs pdffigures2).
+ * Detects figures in PDFs using pdffigures2 Docker container.
  */
 
 import { RenderedPage } from './renderer';
-import {
-  DetectedFigure,
-  PageAnalysis,
-  detectFiguresInPage,
-} from './figure-detector';
+import { DetectedFigure, PageAnalysis } from './figure-types';
 import {
   detectAndConvertFigures,
   isPdffigures2Available,
@@ -18,73 +13,13 @@ import {
 } from './pdffigures2-client';
 
 /**
- * Available detection strategies
- */
-export type DetectionStrategy = 'gemini' | 'pdffigures2';
-
-/**
- * Get the configured detection strategy from environment
- */
-export function getDetectionStrategy(): DetectionStrategy {
-  const strategy = process.env.FIGURE_DETECTION_STRATEGY?.toLowerCase();
-
-  if (strategy === 'pdffigures2') {
-    return 'pdffigures2';
-  }
-
-  // Default to gemini
-  return 'gemini';
-}
-
-/**
  * Detection result containing figures grouped by page
  */
 export interface DetectionResult {
   /** Figures detected per page */
   figuresByPage: Map<number, DetectedFigure[]>;
-  /** Detection strategy used */
-  strategy: DetectionStrategy;
   /** Total figures detected */
   totalFigures: number;
-}
-
-/**
- * Detect figures using Gemini Vision API
- *
- * @param pages - Rendered PDF pages
- * @param concurrency - Max concurrent API calls
- * @param onProgress - Progress callback
- */
-async function detectWithGemini(
-  pages: RenderedPage[],
-  concurrency: number,
-  onProgress?: (current: number, total: number) => void
-): Promise<Map<number, DetectedFigure[]>> {
-  const figuresByPage = new Map<number, DetectedFigure[]>();
-
-  // Process in batches
-  for (let i = 0; i < pages.length; i += concurrency) {
-    const batch = pages.slice(i, i + concurrency);
-
-    const batchAnalyses = await Promise.all(
-      batch.map(page => detectFiguresInPage(page.imageBuffer, page.pageNumber))
-    );
-
-    for (const analysis of batchAnalyses) {
-      if (analysis.figures.length > 0) {
-        figuresByPage.set(analysis.pageNumber, analysis.figures);
-      }
-    }
-
-    onProgress?.(Math.min(i + concurrency, pages.length), pages.length);
-
-    // Rate limit delay
-    if (i + concurrency < pages.length) {
-      await delay(300);
-    }
-  }
-
-  return figuresByPage;
 }
 
 /**
@@ -111,10 +46,9 @@ async function detectWithPdffigures2(
 }
 
 /**
- * Detect figures using the configured strategy
+ * Detect figures using pdffigures2
  *
  * This is the main entry point for figure detection.
- * It automatically selects the detection method based on configuration.
  *
  * @param pdfBuffer - Original PDF buffer (required for pdffigures2)
  * @param pages - Rendered PDF pages
@@ -126,51 +60,35 @@ async function detectWithPdffigures2(
  * const result = await detectFigures(pdfBuffer, pages, {
  *   onProgress: (current, total) => console.log(`${current}/${total}`)
  * });
- * console.log(`Detected ${result.totalFigures} figures using ${result.strategy}`);
+ * console.log(`Detected ${result.totalFigures} figures`);
  * ```
  */
 export async function detectFigures(
   pdfBuffer: Buffer,
   pages: RenderedPage[],
   options: {
-    /** Override the default strategy */
-    strategy?: DetectionStrategy;
-    /** Concurrency for Gemini detection */
-    concurrency?: number;
-    /** Progress callback (for Gemini detection) */
+    /** Progress callback */
     onProgress?: (current: number, total: number) => void;
   } = {}
 ): Promise<DetectionResult> {
-  const strategy = options.strategy || getDetectionStrategy();
-  const concurrency = options.concurrency || 3;
-
   let figuresByPage: Map<number, DetectedFigure[]>;
 
-  if (strategy === 'pdffigures2') {
-    try {
-      // Check if pdffigures2 is available
-      const available = await isPdffigures2Available();
+  try {
+    // Check if pdffigures2 is available
+    const available = await isPdffigures2Available();
 
-      if (!available) {
-        console.warn(
-          'pdffigures2 service not available, figure detection will be skipped'
-        );
-        figuresByPage = new Map();
-      } else {
-        figuresByPage = await detectWithPdffigures2(pdfBuffer, pages);
-      }
-    } catch (error) {
-      console.error('pdffigures2 detection failed:', error);
-      // Return empty result on failure (no fallback per design)
+    if (!available) {
+      console.warn(
+        'pdffigures2 service not available, figure detection will be skipped'
+      );
       figuresByPage = new Map();
+    } else {
+      figuresByPage = await detectWithPdffigures2(pdfBuffer, pages);
     }
-  } else {
-    // Use Gemini Vision API
-    figuresByPage = await detectWithGemini(
-      pages,
-      concurrency,
-      options.onProgress
-    );
+  } catch (error) {
+    console.error('pdffigures2 detection failed:', error);
+    // Return empty result on failure
+    figuresByPage = new Map();
   }
 
   // Calculate total figures
@@ -179,9 +97,11 @@ export async function detectFigures(
     totalFigures += figures.length;
   });
 
+  // Call progress callback with completion
+  options.onProgress?.(pages.length, pages.length);
+
   return {
     figuresByPage,
-    strategy,
     totalFigures,
   };
 }
@@ -205,11 +125,4 @@ export function toPageAnalyses(
   );
 
   return analyses.sort((a, b) => a.pageNumber - b.pageNumber);
-}
-
-/**
- * Simple delay helper
- */
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }

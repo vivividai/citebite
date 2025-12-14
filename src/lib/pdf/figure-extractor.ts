@@ -6,7 +6,7 @@
  */
 
 import sharp from 'sharp';
-import { DetectedFigure, BoundingBox } from './figure-detector';
+import { DetectedFigure, BoundingBox } from './figure-types';
 import { normalizeFigureReference } from './figure-reference-extractor';
 
 export interface CroppedFigure {

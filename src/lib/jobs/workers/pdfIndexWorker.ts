@@ -5,8 +5,8 @@
  * and stores in pgvector for hybrid search.
  *
  * Multimodal features:
- * - Figure detection using Gemini Vision
- * - Figure extraction and analysis
+ * - Figure detection using pdffigures2
+ * - Figure extraction and analysis with Gemini Vision
  * - Bidirectional linking between text chunks and figures
  */
 
@@ -24,7 +24,10 @@ import {
 } from '@/lib/db/chunks';
 // Multimodal imports
 import { renderPdfPagesStream, RenderedPage } from '@/lib/pdf/renderer';
-import { detectFiguresInPage, PageAnalysis } from '@/lib/pdf/figure-detector';
+import {
+  detectFigures,
+  toPageAnalyses,
+} from '@/lib/pdf/figure-detection-strategy';
 import {
   extractFiguresFromPage,
   CroppedFigure,
@@ -268,33 +271,18 @@ async function processMultimodal(
   }
   console.log(`[PDF Index Worker] Rendered ${pages.length} pages total`);
 
-  // Step 6: Detect figures in each page
-  console.log(`[PDF Index Worker] Detecting figures in pages...`);
+  // Step 6: Detect figures using pdffigures2
+  console.log(`[PDF Index Worker] Detecting figures using pdffigures2...`);
   await job.updateProgress(50);
 
-  const pageAnalyses: PageAnalysis[] = [];
-  for (let i = 0; i < pages.length; i += 3) {
-    const batch = pages.slice(i, i + 3);
-    const analyses = await Promise.all(
-      batch.map(page => detectFiguresInPage(page.imageBuffer, page.pageNumber))
-    );
-    pageAnalyses.push(...analyses);
+  const detectionResult = await detectFigures(pdfBuffer, pages);
+  const pageAnalyses = toPageAnalyses(detectionResult);
 
-    // Rate limit delay
-    if (i + 3 < pages.length) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-  }
-
-  const totalFigures = pageAnalyses.reduce(
-    (sum, a) => sum + a.figures.length,
-    0
-  );
   console.log(
-    `[PDF Index Worker] Detected ${totalFigures} figures across ${pages.length} pages`
+    `[PDF Index Worker] Detected ${detectionResult.totalFigures} figures across ${pages.length} pages`
   );
 
-  if (totalFigures === 0) {
+  if (detectionResult.totalFigures === 0) {
     console.log(
       `[PDF Index Worker] No figures detected, skipping figure indexing`
     );

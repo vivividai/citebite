@@ -2,15 +2,10 @@
  * Figure Processing Pipeline
  *
  * Orchestrates the complete figure extraction and analysis workflow:
- * PDF → Render Pages → Detect Figures → Crop → Analyze → Store
- *
- * Supports two detection strategies:
- * - gemini: Uses Gemini Vision API (default, slower but more accurate)
- * - pdffigures2: Uses pdffigures2 Docker container (faster, no API calls)
+ * PDF → Render Pages → Detect Figures (pdffigures2) → Crop → Analyze (Gemini Vision) → Store
  */
 
 import { renderPdfPagesStream, RenderedPage } from './renderer';
-import { detectFiguresInPage, PageAnalysis } from './figure-detector';
 import { extractFiguresFromPage, CroppedFigure } from './figure-extractor';
 import {
   analyzeFigureWithProvidedContext,
@@ -20,24 +15,15 @@ import {
   findChunksForMultipleFigures,
   RelatedTextChunk,
 } from './figure-context';
-import {
-  detectFigures,
-  DetectionStrategy,
-  toPageAnalyses,
-  getDetectionStrategy,
-} from './figure-detection-strategy';
+import { detectFigures, toPageAnalyses } from './figure-detection-strategy';
 
 export interface FigurePipelineOptions {
-  /** Max concurrent Vision API calls for detection */
-  detectionConcurrency: number;
   /** Max concurrent Vision API calls for analysis */
   analysisConcurrency: number;
   /** Render DPI (72 = 1x, 144 = 2x, 150 = default, 300 = print quality) */
   renderDpi: number;
   /** Skip pages with no figures detected */
   skipEmptyPages: boolean;
-  /** Detection strategy: 'gemini' (default) or 'pdffigures2' */
-  detectionStrategy?: DetectionStrategy;
   /** Skip Gemini analysis phase (just crop images, faster for testing) */
   skipAnalysis?: boolean;
   /** Progress callback */
@@ -67,7 +53,6 @@ export interface PipelineResult {
 }
 
 const DEFAULT_OPTIONS: FigurePipelineOptions = {
-  detectionConcurrency: 3,
   analysisConcurrency: 2,
   renderDpi: 150,
   skipEmptyPages: true,
@@ -103,10 +88,9 @@ export async function processPdfFigures(
   const startTime = Date.now();
 
   const pages: RenderedPage[] = [];
-  const pageAnalyses: PageAnalysis[] = [];
   const allCroppedFigures: CroppedFigure[] = [];
 
-  // Phase 1: Render pages and detect figures
+  // Phase 1: Render pages
   let pageCount = 0;
   for await (const page of renderPdfPagesStream(pdfBuffer, {
     dpi: opts.renderDpi,
@@ -122,19 +106,15 @@ export async function processPdfFigures(
     });
   }
 
-  // Phase 2: Detect figures using configured strategy
-  const strategy = opts.detectionStrategy || getDetectionStrategy();
-
+  // Phase 2: Detect figures using pdffigures2
   opts.onProgress?.({
     phase: 'detecting',
     current: 0,
     total: pages.length,
-    message: `Detecting figures using ${strategy} strategy...`,
+    message: 'Detecting figures using pdffigures2...',
   });
 
   const detectionResult = await detectFigures(pdfBuffer, pages, {
-    strategy,
-    concurrency: opts.detectionConcurrency,
     onProgress: (current, total) => {
       opts.onProgress?.({
         phase: 'detecting',
@@ -145,14 +125,13 @@ export async function processPdfFigures(
     },
   });
 
-  // Convert detection result to page analyses
-  pageAnalyses.push(...toPageAnalyses(detectionResult));
+  const pageAnalyses = toPageAnalyses(detectionResult);
 
   opts.onProgress?.({
     phase: 'detecting',
     current: pages.length,
     total: pages.length,
-    message: `Detected ${detectionResult.totalFigures} figures using ${strategy}`,
+    message: `Detected ${detectionResult.totalFigures} figures using pdffigures2`,
   });
 
   // Phase 3: Extract (crop) figures
@@ -173,7 +152,7 @@ export async function processPdfFigures(
     opts.onProgress?.({
       phase: 'extracting',
       current: allCroppedFigures.length,
-      total: pageAnalyses.reduce((sum, a) => sum + a.figures.length, 0),
+      total: detectionResult.totalFigures,
       message: `Extracted ${allCroppedFigures.length} figures`,
     });
   }
@@ -198,12 +177,8 @@ export async function processPdfFigures(
         type: cropped.type,
         pageNumber: cropped.pageNumber,
         imageBuffer: cropped.imageBuffer,
-        boundingBox: cropped.boundingBox,
         description: '(Analysis skipped)',
-        summary: '(Analysis skipped)',
-        keyDataPoints: [],
-        visualElements: [],
-        contextualReferences: [],
+        mentionedInChunkIds: [],
       });
     }
   } else {
@@ -263,10 +238,11 @@ export async function processPdfFigures(
 }
 
 /**
- * Process figures from already-rendered pages
+ * Process figures from already-rendered pages using pdffigures2
  * (For when pages have already been rendered)
  */
 export async function processFiguresFromPages(
+  pdfBuffer: Buffer,
   pages: RenderedPage[],
   paperId: string,
   collectionId: string,
@@ -274,14 +250,14 @@ export async function processFiguresFromPages(
 ): Promise<FigureAnalysis[]> {
   const analyzedFigures: FigureAnalysis[] = [];
 
-  // Detect and extract figures from each page
-  for (const page of pages) {
-    const analysis = await detectFiguresInPage(
-      page.imageBuffer,
-      page.pageNumber
-    );
+  // Detect figures using pdffigures2
+  const detectionResult = await detectFigures(pdfBuffer, pages);
+  const pageAnalyses = toPageAnalyses(detectionResult);
 
-    if (analysis.figures.length === 0) continue;
+  // Extract and analyze figures from each page
+  for (const page of pages) {
+    const analysis = pageAnalyses.find(a => a.pageNumber === page.pageNumber);
+    if (!analysis || analysis.figures.length === 0) continue;
 
     const croppedFigures = await extractFiguresFromPage(
       page.imageBuffer,

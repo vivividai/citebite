@@ -35,13 +35,11 @@ async function main() {
     process.exit(1);
   }
 
-  const strategy = process.env.FIGURE_DETECTION_STRATEGY || 'gemini';
-
   console.log('='.repeat(60));
   console.log('Full Figure Pipeline Test');
   console.log('='.repeat(60));
   console.log(`PDF: ${absolutePath}`);
-  console.log(`Detection strategy: ${strategy}`);
+  console.log(`Detection: pdffigures2`);
   console.log(`Skip analysis: ${skipAnalysis}`);
   console.log(`Paper ID: ${TEST_PAPER_ID}`);
   console.log(`Collection ID: ${TEST_COLLECTION_ID}`);
@@ -61,7 +59,6 @@ async function main() {
       TEST_PAPER_ID,
       TEST_COLLECTION_ID,
       {
-        detectionStrategy: strategy as 'gemini' | 'pdffigures2',
         skipAnalysis,
         onProgress: progress => {
           console.log(`  [${progress.phase}] ${progress.message}`);

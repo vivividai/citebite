@@ -5,7 +5,7 @@
  * to detect figures in PDF documents.
  */
 
-import { BoundingBox, DetectedFigure } from './figure-detector';
+import { BoundingBox, DetectedFigure } from './figure-types';
 
 /**
  * pdffigures2 API response format

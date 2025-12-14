@@ -1,5 +1,5 @@
 /**
- * Test script to extract figures from a PDF using the figure pipeline
+ * Test script to extract figures from a PDF using pdffigures2
  *
  * Usage: npx tsx scripts/test-figure-extraction.ts <pdf-path> [output-dir]
  */
@@ -9,7 +9,10 @@ dotenv.config({ path: '.env.local' });
 import fs from 'fs/promises';
 import path from 'path';
 import { renderPdfPages } from '../src/lib/pdf/renderer';
-import { detectFiguresInPage } from '../src/lib/pdf/figure-detector';
+import {
+  detectFigures,
+  toPageAnalyses,
+} from '../src/lib/pdf/figure-detection-strategy';
 import { extractFiguresFromPage } from '../src/lib/pdf/figure-extractor';
 
 async function main() {
@@ -43,10 +46,15 @@ async function main() {
     );
   }
 
-  // Detect and extract figures from each page
-  console.log('\n🔍 Detecting figures...');
+  // Detect figures using pdffigures2
+  console.log('\n🔍 Detecting figures using pdffigures2...');
   const figuresDir = path.join(outputDir, 'figures');
   await fs.mkdir(figuresDir, { recursive: true });
+
+  const detectionResult = await detectFigures(pdfBuffer, pages);
+  const pageAnalyses = toPageAnalyses(detectionResult);
+
+  console.log(`✅ Detected ${detectionResult.totalFigures} figures total`);
 
   let totalFigures = 0;
   const detectionResults: Array<{
@@ -60,36 +68,30 @@ async function main() {
   }> = [];
 
   for (const page of pages) {
-    console.log(`\n   Processing page ${page.pageNumber}...`);
+    const analysis = pageAnalyses.find(a => a.pageNumber === page.pageNumber);
 
+    if (!analysis || analysis.figures.length === 0) {
+      console.log(`\n   Page ${page.pageNumber}: No figures detected`);
+      continue;
+    }
+
+    console.log(
+      `\n   Page ${page.pageNumber}: Found ${analysis.figures.length} figure(s):`
+    );
+
+    detectionResults.push({
+      pageNumber: page.pageNumber,
+      figures: analysis.figures.map(f => ({
+        figureNumber: f.figureNumber,
+        caption:
+          f.caption.substring(0, 100) + (f.caption.length > 100 ? '...' : ''),
+        type: f.type,
+        boundingBox: f.boundingBox,
+      })),
+    });
+
+    // Extract (crop) each figure
     try {
-      // Detect figures
-      const analysis = await detectFiguresInPage(
-        page.imageBuffer,
-        page.pageNumber
-      );
-
-      if (analysis.figures.length === 0) {
-        console.log(`   No figures detected on page ${page.pageNumber}`);
-        continue;
-      }
-
-      console.log(
-        `   Found ${analysis.figures.length} figure(s) on page ${page.pageNumber}:`
-      );
-
-      detectionResults.push({
-        pageNumber: page.pageNumber,
-        figures: analysis.figures.map(f => ({
-          figureNumber: f.figureNumber,
-          caption:
-            f.caption.substring(0, 100) + (f.caption.length > 100 ? '...' : ''),
-          type: f.type,
-          boundingBox: f.boundingBox,
-        })),
-      });
-
-      // Extract (crop) each figure
       const croppedFigures = await extractFiguresFromPage(
         page.imageBuffer,
         page.width,
@@ -119,11 +121,11 @@ async function main() {
         );
       }
     } catch (error) {
-      console.error(`   Error processing page ${page.pageNumber}:`, error);
+      console.error(
+        `   Error extracting figures from page ${page.pageNumber}:`,
+        error
+      );
     }
-
-    // Rate limit between pages
-    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
   // Save detection results as JSON

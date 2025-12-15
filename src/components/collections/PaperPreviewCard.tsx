@@ -35,8 +35,7 @@ export function PaperPreviewCard({
     <div
       className={cn(
         'flex gap-3 rounded-lg border p-3 transition-all',
-        isAboveThreshold ? 'bg-background' : 'bg-muted/30 opacity-60',
-        isSelected && 'ring-2 ring-primary ring-offset-1'
+        isAboveThreshold ? 'bg-background' : 'bg-muted/30 opacity-60'
       )}
     >
       {/* Checkbox */}

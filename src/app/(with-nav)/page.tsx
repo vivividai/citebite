@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, BookOpen, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,11 @@ export default async function Home() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Redirect authenticated users to dashboard
+  if (user) {
+    redirect('/dashboard');
+  }
+
   return (
     <div className="container mx-auto px-4">
       {/* Hero Section */}
@@ -30,25 +36,12 @@ export default async function Home() {
           </p>
         </div>
         <div className="flex gap-4">
-          {user ? (
-            <Button asChild size="lg">
-              <Link href="/collections">
-                View My Collections
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          ) : (
-            <Button asChild size="lg">
-              <Link href="/login">
-                Get Started
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          )}
-          {/* TODO: Phase 7 - Enable when public collections feature is ready */}
-          {/* <Button asChild variant="outline" size="lg">
-            <Link href="/discover">Explore Public Collections</Link>
-          </Button> */}
+          <Button asChild size="lg">
+            <Link href="/login">
+              Get Started
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
         </div>
       </section>
 
@@ -94,29 +87,27 @@ export default async function Home() {
       </section>
 
       {/* CTA Section */}
-      {!user && (
-        <section className="py-16 text-center">
-          <Card className="max-w-2xl mx-auto">
-            <CardHeader>
-              <CardTitle className="text-3xl">
-                Ready to supercharge your research?
-              </CardTitle>
-              <CardDescription className="text-base">
-                Sign in to create your first collection and start chatting with
-                research papers.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild size="lg">
-                <Link href="/login">
-                  Sign In to Get Started
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+      <section className="py-16 text-center">
+        <Card className="max-w-2xl mx-auto">
+          <CardHeader>
+            <CardTitle className="text-3xl">
+              Ready to supercharge your research?
+            </CardTitle>
+            <CardDescription className="text-base">
+              Sign in to create your first collection and start chatting with
+              research papers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild size="lg">
+              <Link href="/login">
+                Sign In to Get Started
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }

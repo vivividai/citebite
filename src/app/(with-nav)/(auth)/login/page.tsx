@@ -38,7 +38,7 @@ export default function LoginPage() {
 
       if (data.session) {
         toast.success('Logged in successfully!');
-        router.push('/collections');
+        router.push('/dashboard');
         router.refresh();
       }
     } catch (error) {

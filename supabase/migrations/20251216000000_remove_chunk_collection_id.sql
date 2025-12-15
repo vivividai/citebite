@@ -18,9 +18,15 @@ DROP POLICY IF EXISTS "Users can read own collection chunks" ON paper_chunks;
 DROP POLICY IF EXISTS "Users can read public collection chunks" ON paper_chunks;
 
 -- =============================================
--- 3. Clear existing data (clean slate)
+-- 3. Remove duplicate chunks (keep one per paper_id, chunk_index, chunk_type)
 -- =============================================
-TRUNCATE TABLE paper_chunks;
+-- Before removing collection_id, deduplicate chunks that exist in multiple collections
+DELETE FROM paper_chunks a
+USING paper_chunks b
+WHERE a.id > b.id
+  AND a.paper_id = b.paper_id
+  AND a.chunk_index = b.chunk_index
+  AND a.chunk_type = b.chunk_type;
 
 -- =============================================
 -- 4. Remove collection_id column
@@ -149,12 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_collection_papers_paper_id
 ON collection_papers(paper_id);
 
 -- =============================================
--- 9. Reset all papers to pending status (clean slate)
--- =============================================
-UPDATE papers SET text_vector_status = 'pending', image_vector_status = 'pending';
-
--- =============================================
--- 10. Comments
+-- 9. Comments
 -- =============================================
 COMMENT ON FUNCTION hybrid_search IS 'RRF-based hybrid search combining vector similarity (70%) and keyword search (30%). Now uses collection_papers join to filter by collection.';
 COMMENT ON CONSTRAINT unique_paper_chunk ON paper_chunks IS 'Chunks are unique per paper (not per paper+collection) to prevent duplicate embeddings';

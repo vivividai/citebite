@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { Plus, Check, FileText, Users, Calendar, Quote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,8 +41,9 @@ function formatCitations(count: number | null): string {
 
 /**
  * Compact card component for displaying paper search results
+ * Memoized to prevent unnecessary re-renders when parent state changes
  */
-export function PaperSearchCard({
+export const PaperSearchCard = memo(function PaperSearchCard({
   paper,
   isSelected,
   isDisabled,
@@ -124,4 +126,4 @@ export function PaperSearchCard({
       </Button>
     </div>
   );
-}
+});

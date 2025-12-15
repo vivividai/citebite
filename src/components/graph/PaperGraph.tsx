@@ -24,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Loader2, Info, Sparkles, RefreshCw } from 'lucide-react';
+import { Loader2, Info, Sparkles, RefreshCw, ChevronDown } from 'lucide-react';
 import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import type { PaperPreview } from '@/lib/search/types';
@@ -48,6 +48,7 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 
 interface PaperGraphProps {
   collectionId: string;
+  onCollapse?: () => void;
 }
 
 // Node size constants
@@ -160,7 +161,7 @@ function buildHierarchy(
 /**
  * Main paper relationship graph component
  */
-export function PaperGraph({ collectionId }: PaperGraphProps) {
+export function PaperGraph({ collectionId, onCollapse }: PaperGraphProps) {
   const graphRef = useRef<ForceGraphMethods | undefined>();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -700,8 +701,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
         </div>
       </div>
 
-      {/* Refresh button */}
-      <div className="absolute top-4 right-4 z-10">
+      {/* Top right buttons */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <Button
           variant="outline"
           size="icon"
@@ -712,6 +713,11 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
             className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
           />
         </Button>
+        {onCollapse && (
+          <Button variant="outline" size="icon" onClick={onCollapse}>
+            <ChevronDown className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Graph container */}

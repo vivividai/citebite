@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useRef } from 'react';
 import { useDashboard } from '@/context/DashboardContext';
 import { PaperList } from '@/components/collections/PaperList';
 import { PaperGraph } from '@/components/graph/PaperGraph';
@@ -8,7 +9,9 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
-import { FileText, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FileText, Loader2, ChevronUp, GitFork } from 'lucide-react';
+import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 /**
  * Empty state when no collection is selected
@@ -67,6 +70,23 @@ export function ContentPanel() {
     collectionError,
   } = useDashboard();
 
+  // Graph panel collapse state
+  const [isGraphCollapsed, setIsGraphCollapsed] = useState(false);
+  const graphPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Toggle graph panel collapse
+  const toggleGraphPanel = () => {
+    const panel = graphPanelRef.current;
+    if (panel) {
+      if (isGraphCollapsed) {
+        panel.expand();
+      } else {
+        panel.collapse();
+      }
+    }
+    setIsGraphCollapsed(!isGraphCollapsed);
+  };
+
   // Show empty state if no collection selected
   if (!selectedCollectionId) {
     return <EmptyState />;
@@ -99,11 +119,38 @@ export function ContentPanel() {
       <ResizableHandle withHandle />
 
       {/* Paper Graph - Bottom */}
-      <ResizablePanel defaultSize={50} minSize={20}>
+      <ResizablePanel
+        ref={graphPanelRef}
+        defaultSize={50}
+        minSize={10}
+        collapsible
+        collapsedSize={0}
+        onCollapse={() => setIsGraphCollapsed(true)}
+        onExpand={() => setIsGraphCollapsed(false)}
+      >
         <div className="h-full overflow-hidden">
-          <PaperGraph collectionId={collection.id} />
+          <PaperGraph
+            collectionId={collection.id}
+            onCollapse={toggleGraphPanel}
+          />
         </div>
       </ResizablePanel>
+
+      {/* Collapsed state: Show expand button at bottom */}
+      {isGraphCollapsed && (
+        <div className="border-t bg-muted/30 px-4 py-2 flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleGraphPanel}
+            className="gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <GitFork className="h-4 w-4" />
+            <span>Show Citation Graph</span>
+            <ChevronUp className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </ResizablePanelGroup>
   );
 }

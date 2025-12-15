@@ -10,57 +10,76 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
+    /* Beige/Green Theme - Warm cream background with forest green accents */
+    --background: 40 33% 96%; /* #F7F4EF - warm cream */
+    --foreground: 30 10% 15%; /* warm dark brown */
+    --card: 40 33% 98%; /* off-white */
+    --card-foreground: 30 10% 15%;
+    --popover: 40 33% 98%;
+    --popover-foreground: 30 10% 15%;
+    --primary: 152 55% 33%; /* forest green */
     --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --secondary: 40 25% 92%; /* light beige */
+    --secondary-foreground: 30 10% 15%;
+    --muted: 40 20% 94%;
+    --muted-foreground: 30 10% 45%;
+    --accent: 150 30% 85%; /* sage green tint */
+    --accent-foreground: 30 10% 15%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
+    --border: 40 15% 85%; /* warm gray */
+    --input: 40 15% 85%;
+    --ring: 152 55% 33%; /* forest green for focus */
+    --chart-1: 152 55% 33%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+
+    /* Dashboard-specific variables */
+    --rail: 30 15% 12%; /* dark charcoal for rail */
+    --rail-foreground: 40 20% 90%;
+    --rail-muted: 30 10% 35%;
+    --rail-active: 152 55% 45%; /* lighter forest green for active */
+    --sidebar: 40 33% 98%;
+    --sidebar-foreground: 30 10% 15%;
+    --sidebar-border: 40 15% 88%;
   }
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
+    --background: 30 15% 8%;
+    --foreground: 40 20% 90%;
+    --card: 30 15% 10%;
+    --card-foreground: 40 20% 90%;
+    --popover: 30 15% 10%;
+    --popover-foreground: 40 20% 90%;
+    --primary: 152 55% 45%;
+    --primary-foreground: 30 10% 10%;
+    --secondary: 30 15% 15%;
+    --secondary-foreground: 40 20% 90%;
+    --muted: 30 15% 15%;
+    --muted-foreground: 40 15% 60%;
+    --accent: 150 20% 20%;
+    --accent-foreground: 40 20% 90%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
+    --border: 30 15% 18%;
+    --input: 30 15% 18%;
+    --ring: 152 55% 45%;
+    --chart-1: 152 55% 45%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    /* Dashboard-specific variables (dark) */
+    --rail: 30 15% 6%;
+    --rail-foreground: 40 20% 85%;
+    --rail-muted: 30 10% 50%;
+    --rail-active: 152 55% 50%;
+    --sidebar: 30 15% 10%;
+    --sidebar-foreground: 40 20% 90%;
+    --sidebar-border: 30 15% 15%;
   }
 }
 

@@ -25,10 +25,10 @@ export function Navigation({ user }: NavigationProps) {
             </Link>
             {user && (
               <Link
-                href="/collections"
+                href="/dashboard"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
-                Collections
+                Dashboard
               </Link>
             )}
             {/* TODO: Phase 7 - Public Collections Discovery */}

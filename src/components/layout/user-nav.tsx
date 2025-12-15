@@ -17,9 +17,10 @@ import { createClient } from '@/lib/supabase/client';
 
 interface UserNavProps {
   user: User | null;
+  variant?: 'default' | 'rail';
 }
 
-export function UserNav({ user }: UserNavProps) {
+export function UserNav({ user, variant = 'default' }: UserNavProps) {
   const router = useRouter();
   const supabase = createClient();
 
@@ -29,6 +30,18 @@ export function UserNav({ user }: UserNavProps) {
   };
 
   if (!user) {
+    if (variant === 'rail') {
+      return (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push('/login')}
+          className="h-10 w-10 rounded-full text-[hsl(var(--rail-foreground))] hover:bg-[hsl(var(--rail-muted)/0.3)]"
+        >
+          <UserIcon className="h-5 w-5" />
+        </Button>
+      );
+    }
     return (
       <Button
         variant="default"
@@ -44,22 +57,43 @@ export function UserNav({ user }: UserNavProps) {
     return email.substring(0, 2).toUpperCase();
   };
 
+  const isRail = variant === 'rail';
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-          <Avatar className="h-10 w-10">
+        <Button
+          variant="ghost"
+          className={
+            isRail
+              ? 'relative h-9 w-9 rounded-full hover:bg-[hsl(var(--rail-muted)/0.3)]'
+              : 'relative h-10 w-10 rounded-full'
+          }
+        >
+          <Avatar className={isRail ? 'h-8 w-8' : 'h-10 w-10'}>
             <AvatarImage
               src={user.user_metadata?.avatar_url}
               alt={user.email ?? 'User avatar'}
             />
-            <AvatarFallback>
+            <AvatarFallback
+              className={
+                isRail
+                  ? 'bg-[hsl(var(--rail-muted))] text-[hsl(var(--rail-foreground))] text-xs'
+                  : ''
+              }
+            >
               {user.email ? getUserInitials(user.email) : 'U'}
             </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="end" forceMount>
+      <DropdownMenuContent
+        className="w-56"
+        align={isRail ? 'start' : 'end'}
+        side={isRail ? 'right' : 'bottom'}
+        sideOffset={isRail ? 8 : 0}
+        forceMount
+      >
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">

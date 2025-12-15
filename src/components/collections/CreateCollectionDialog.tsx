@@ -17,7 +17,13 @@ import { useCreateCollection } from '@/hooks/useCreateCollection';
 import { seedPaperCollectionSchema } from '@/lib/validations/collections';
 import type { PaperSearchResult } from '@/hooks/usePaperSearch';
 
-export function CreateCollectionDialog() {
+interface CreateCollectionDialogProps {
+  variant?: 'default' | 'sidebar';
+}
+
+export function CreateCollectionDialog({
+  variant = 'default',
+}: CreateCollectionDialogProps) {
   const [open, setOpen] = useState(false);
 
   // Form state
@@ -133,10 +139,17 @@ export function CreateCollectionDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="lg">
-          <Plus className="mr-2 h-5 w-5" />
-          Create Collection
-        </Button>
+        {variant === 'sidebar' ? (
+          <Button variant="outline" size="sm" className="w-full justify-start">
+            <Plus className="mr-2 h-4 w-4" />
+            New Collection
+          </Button>
+        ) : (
+          <Button size="lg">
+            <Plus className="mr-2 h-5 w-5" />
+            Create Collection
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden p-0">
         <DialogHeader className="px-6 pt-6 pb-0">

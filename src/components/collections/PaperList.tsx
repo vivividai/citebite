@@ -36,6 +36,7 @@ import {
   X,
   Trash2,
   RefreshCw,
+  Search,
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
 import { ExpandCollectionDialog } from './ExpandCollectionDialog';
@@ -56,8 +57,7 @@ export function PaperList({ collectionId }: PaperListProps) {
   const [filter, setFilter] = useState<FilterType>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<SortType>('citations');
-  const [yearFrom, setYearFrom] = useState<string>('');
-  const [yearTo, setYearTo] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Selection mode state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -90,18 +90,12 @@ export function PaperList({ collectionId }: PaperListProps) {
       return true; // 'all'
     });
 
-    // Then, filter by year range
-    if (yearFrom) {
-      const fromYear = parseInt(yearFrom, 10);
-      if (!isNaN(fromYear)) {
-        result = result.filter(paper => paper.year && paper.year >= fromYear);
-      }
-    }
-    if (yearTo) {
-      const toYear = parseInt(yearTo, 10);
-      if (!isNaN(toYear)) {
-        result = result.filter(paper => paper.year && paper.year <= toYear);
-      }
+    // Then, filter by search query (title search)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(paper =>
+        paper.title.toLowerCase().includes(query)
+      );
     }
 
     // Finally, sort
@@ -114,7 +108,7 @@ export function PaperList({ collectionId }: PaperListProps) {
     // 'relevance' keeps the original order from API
 
     return sorted;
-  }, [papers, filter, yearFrom, yearTo, sortBy]);
+  }, [papers, filter, searchQuery, sortBy]);
 
   const counts = useMemo(() => {
     if (!papers) return { all: 0, indexed: 0, failed: 0, pending: 0 };
@@ -384,52 +378,46 @@ export function PaperList({ collectionId }: PaperListProps) {
           </div>
         )}
 
-        {/* Year Range and Sort Controls */}
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Year Range Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Year:</span>
+        {/* Search and Sort Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search Input */}
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              type="number"
-              placeholder="From"
-              value={yearFrom}
-              onChange={e => setYearFrom(e.target.value)}
-              className="w-24 h-9"
-              min="1900"
-              max="2100"
-            />
-            <span className="text-sm text-muted-foreground">-</span>
-            <Input
-              type="number"
-              placeholder="To"
-              value={yearTo}
-              onChange={e => setYearTo(e.target.value)}
-              className="w-24 h-9"
-              min="1900"
-              max="2100"
+              type="text"
+              placeholder="Search papers..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-8 h-8 text-xs"
             />
           </div>
 
           {/* Sort Dropdown */}
           <div className="flex items-center gap-2">
-            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
             <Select
               value={sortBy}
               onValueChange={value => setSortBy(value as SortType)}
             >
-              <SelectTrigger className="w-[160px] h-9">
+              <SelectTrigger className="w-[130px] h-8 text-xs">
                 <SelectValue placeholder="Sort by..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="citations">Citations</SelectItem>
-                <SelectItem value="year">Year</SelectItem>
-                <SelectItem value="relevance">Relevance</SelectItem>
+                <SelectItem value="citations" className="text-xs">
+                  Citations
+                </SelectItem>
+                <SelectItem value="year" className="text-xs">
+                  Year
+                </SelectItem>
+                <SelectItem value="relevance" className="text-xs">
+                  Relevance
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Results Count */}
-          <div className="ml-auto text-sm text-muted-foreground">
+          <div className="ml-auto text-xs text-muted-foreground">
             {filteredAndSortedPapers.length} paper
             {filteredAndSortedPapers.length !== 1 ? 's' : ''}
           </div>

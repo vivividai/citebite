@@ -1,11 +1,11 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { Navigation } from '@/components/layout/navigation';
 
-interface WithNavLayoutProps {
+interface LandingLayoutProps {
   children: React.ReactNode;
 }
 
-export default async function WithNavLayout({ children }: WithNavLayoutProps) {
+export default async function LandingLayout({ children }: LandingLayoutProps) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },

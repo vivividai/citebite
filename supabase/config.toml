@@ -109,11 +109,8 @@ file_size_limit = "50MiB"
 # [storage.image_transformation]
 # enabled = true
 
-# Configure the pdfs bucket for PDF files and figure images
-[storage.buckets.pdfs]
-public = false
-file_size_limit = "100MiB"
-allowed_mime_types = ["application/pdf", "image/png", "image/jpeg"]
+# Note: 'pdfs' bucket is created via SQL migration (20251117140000_setup_storage_bucket.sql)
+# to avoid conflicts during remote push. Do not define it here.
 
 [auth]
 enabled = true

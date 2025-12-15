@@ -149,14 +149,19 @@ export async function isPdffigures2Available(): Promise<boolean> {
 }
 
 /**
- * Convert pdffigures2 PDF coordinates to normalized coordinates (0-1)
+ * Convert pdffigures2 coordinates to normalized coordinates (0-1)
  *
- * pdffigures2 returns coordinates in PDF points (72 DPI).
- * We need to:
- * 1. Scale these coordinates to match the rendered image DPI
- * 2. Convert to normalized coordinates (0-1) for consistency with Gemini Vision detection
+ * pdffigures2 returns coordinates in pixel units at 72 DPI with:
+ * - Origin at top-left (0,0 = top-left corner)
+ * - Y-axis pointing downward (same as image coordinates)
+ * - Based on the PDF's cropbox
  *
- * @param region - Region boundary from pdffigures2 (in PDF points, 72 DPI)
+ * Important: pdffigures2 may return figures that extend beyond page boundaries
+ * (e.g., when caption overflows to next page). We handle this by:
+ * 1. Scaling coordinates to match rendered DPI
+ * 2. Clamping to page boundaries while preserving figure proportions
+ *
+ * @param region - Region boundary from pdffigures2 (in pixels at 72 DPI)
  * @param pageWidth - Rendered page width in pixels
  * @param pageHeight - Rendered page height in pixels
  * @param renderedDpi - DPI used to render the page (default: 150)
@@ -168,26 +173,54 @@ export function convertToNormalizedBoundingBox(
   pageHeight: number,
   renderedDpi: number = 150
 ): BoundingBox {
-  // Scale factor to convert from PDF coordinates (72 DPI) to rendered coordinates
+  // Scale factor to convert from 72 DPI to rendered DPI
   const scaleFactor = renderedDpi / PDF_STANDARD_DPI;
 
-  // Scale pdffigures2 coordinates from PDF points to rendered pixels
-  const scaledX1 = region.x1 * scaleFactor;
-  const scaledY1 = region.y1 * scaleFactor;
-  const scaledX2 = region.x2 * scaleFactor;
-  const scaledY2 = region.y2 * scaleFactor;
+  // Scale coordinates to rendered pixel space
+  let scaledX1 = region.x1 * scaleFactor;
+  let scaledY1 = region.y1 * scaleFactor;
+  let scaledX2 = region.x2 * scaleFactor;
+  let scaledY2 = region.y2 * scaleFactor;
 
-  // Clamp values to valid range
-  const x1 = Math.max(0, Math.min(scaledX1, pageWidth));
-  const y1 = Math.max(0, Math.min(scaledY1, pageHeight));
-  const x2 = Math.max(0, Math.min(scaledX2, pageWidth));
-  const y2 = Math.max(0, Math.min(scaledY2, pageHeight));
+  // Calculate original figure height (needed for overflow handling)
+  const originalHeight = scaledY2 - scaledY1;
+
+  // Handle figures that extend beyond page boundaries
+  // If the figure overflows, we try to capture as much as possible within the page
+  if (scaledY2 > pageHeight) {
+    // Figure extends beyond bottom of page
+    // Clamp y2 to page height, but keep y1 if valid
+    scaledY2 = pageHeight;
+    // If this makes the figure too small (less than 20% of original), adjust y1
+    const newHeight = scaledY2 - scaledY1;
+    if (newHeight < originalHeight * 0.2 && scaledY1 > 0) {
+      // Move y1 up to capture more of the figure
+      scaledY1 = Math.max(0, scaledY2 - originalHeight);
+    }
+  }
+
+  if (scaledY1 < 0) {
+    // Figure extends beyond top of page
+    scaledY1 = 0;
+  }
+
+  if (scaledX2 > pageWidth) {
+    scaledX2 = pageWidth;
+  }
+
+  if (scaledX1 < 0) {
+    scaledX1 = 0;
+  }
+
+  // Ensure we have valid dimensions
+  const finalWidth = Math.max(1, scaledX2 - scaledX1);
+  const finalHeight = Math.max(1, scaledY2 - scaledY1);
 
   return {
-    x: x1 / pageWidth,
-    y: y1 / pageHeight,
-    width: (x2 - x1) / pageWidth,
-    height: (y2 - y1) / pageHeight,
+    x: scaledX1 / pageWidth,
+    y: scaledY1 / pageHeight,
+    width: finalWidth / pageWidth,
+    height: finalHeight / pageHeight,
   };
 }
 

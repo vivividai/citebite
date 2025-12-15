@@ -45,18 +45,7 @@ BEGIN
     'authenticated'
   );
 
-  -- Insert corresponding record in users table
-  INSERT INTO users (
-    id,
-    email,
-    name,
-    created_at
-  ) VALUES (
-    test_user_id,
-    'test@example.com',
-    'Test User',
-    NOW()
-  );
+  -- Note: users table record is auto-created by trigger on auth.users insert
 END $$;
 
 -- User ID: 00000000-0000-0000-0000-000000000001

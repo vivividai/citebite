@@ -43,21 +43,16 @@ Related text from the paper that discusses this figure:
 {relatedTextContext}
 ---
 
-Based on BOTH the image AND the text context above, provide a comprehensive description of this figure.
+Based on BOTH the image AND the text context above, provide a concise description of this figure.
 
-Your description should include:
-1. What type of visualization this is (bar chart, line graph, flowchart, architecture diagram, etc.)
-2. Key elements and their relationships
-3. Main findings or insights shown (use specific numbers/data if mentioned in the text)
-4. Any trends, patterns, or notable data points
-5. Labels, axes, legends if applicable
-6. The significance of this figure in the context of the paper
+Include:
+1. Visualization type (chart, diagram, flowchart, etc.)
+2. Key elements and main findings (use specific numbers if available)
+3. Notable trends or patterns
 
-Write 2-4 paragraphs. Be precise and technical. Focus on information that would be relevant for answering research questions about this paper.
+Write 1-2 short paragraphs (150-250 words max). Be precise and technical. Incorporate insights from the related text.
 
-IMPORTANT: Incorporate insights from the related text to provide a more complete understanding. The text often explains what the figure demonstrates or why it's significant.
-
-Do NOT start with "This figure shows..." - instead, directly describe the content.`;
+Do NOT start with "This figure shows..." - directly describe the content.`;
 
 const FIGURE_ANALYSIS_PROMPT_NO_CONTEXT = `You are analyzing a figure from an academic research paper.
 
@@ -65,18 +60,16 @@ Figure Information:
 - Figure Number: {figureNumber}
 - Caption: {caption}
 
-Provide a detailed description of this figure that would help a researcher understand its content without seeing the image.
+Provide a concise description of this figure that would help a researcher understand its content without seeing the image.
 
-Your description should include:
-1. What type of visualization this is (bar chart, line graph, flowchart, architecture diagram, etc.)
-2. Key elements and their relationships
-3. Main findings or insights shown
-4. Any trends, patterns, or notable data points
-5. Labels, axes, legends if applicable
+Include:
+1. Visualization type (chart, diagram, flowchart, etc.)
+2. Key elements and main findings
+3. Notable trends or patterns
 
-Write 2-4 paragraphs. Be precise and technical. Focus on the information that would be relevant for answering research questions about this paper.
+Write 1-2 short paragraphs (150-250 words max). Be precise and technical.
 
-Do NOT start with "This figure shows..." - instead, directly describe the content.`;
+Do NOT start with "This figure shows..." - directly describe the content.`;
 
 /**
  * Analyze a figure with Gemini Vision AI
@@ -133,7 +126,7 @@ export async function analyzeFigure(
       ],
       config: {
         temperature: 0.3, // Moderate temperature for descriptive text
-        maxOutputTokens: 2048,
+        maxOutputTokens: 1024, // 150-250 words ≈ 200-350 tokens
       },
     });
 
@@ -191,7 +184,7 @@ export async function analyzeFigureWithProvidedContext(
       ],
       config: {
         temperature: 0.3,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 1024, // 150-250 words ≈ 200-350 tokens
       },
     });
 

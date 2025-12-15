@@ -24,15 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Loader2,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  Info,
-  Sparkles,
-  RefreshCw,
-} from 'lucide-react';
+import { Loader2, Info, Sparkles, RefreshCw } from 'lucide-react';
 import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
 import type { PaperPreview } from '@/lib/search/types';
@@ -534,11 +526,6 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     );
   }, [paperToDelete, collectionId, batchRemovePapers]);
 
-  // Zoom controls
-  const handleZoomIn = () => graphRef.current?.zoom(1.5, 400);
-  const handleZoomOut = () => graphRef.current?.zoom(0.67, 400);
-  const handleFitView = () => graphRef.current?.zoomToFit(400, 50);
-
   // Handle refresh button click
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -713,17 +700,8 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
         </div>
       </div>
 
-      {/* Zoom controls */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
-        <Button variant="outline" size="icon" onClick={handleZoomIn}>
-          <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="icon" onClick={handleZoomOut}>
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <Button variant="outline" size="icon" onClick={handleFitView}>
-          <Maximize2 className="h-4 w-4" />
-        </Button>
+      {/* Refresh button */}
+      <div className="absolute top-4 right-4 z-10">
         <Button
           variant="outline"
           size="icon"

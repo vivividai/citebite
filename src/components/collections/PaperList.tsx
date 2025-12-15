@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -262,44 +263,47 @@ export function PaperList({ collectionId }: PaperListProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Filters and Controls */}
-      <div className="space-y-4">
-        {/* Status Filter Buttons */}
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            variant={filter === 'all' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('all')}
+    <div className="flex flex-col h-full">
+      {/* Sticky Filters and Controls */}
+      <div className="sticky top-0 z-10 bg-background pb-4 space-y-4">
+        {/* Status Filter Toggle and Action Buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <ToggleGroup
+            type="single"
+            value={filter}
+            onValueChange={value => value && setFilter(value as FilterType)}
+            className="bg-muted rounded-md p-0.5"
           >
-            All ({counts.all})
-          </Button>
-          <Button
-            variant={filter === 'indexed' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('indexed')}
-          >
-            Indexed ({counts.indexed})
-          </Button>
-          <Button
-            variant={filter === 'pending' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('pending')}
-          >
-            Pending ({counts.pending})
-          </Button>
-          {counts.failed > 0 && (
-            <Button
-              variant={filter === 'failed' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter('failed')}
+            <ToggleGroupItem
+              value="all"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
             >
-              Failed ({counts.failed})
-            </Button>
-          )}
+              All ({counts.all})
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="indexed"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+            >
+              Indexed ({counts.indexed})
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="pending"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+            >
+              Pending ({counts.pending})
+            </ToggleGroupItem>
+            {counts.failed > 0 && (
+              <ToggleGroupItem
+                value="failed"
+                className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+              >
+                Failed ({counts.failed})
+              </ToggleGroupItem>
+            )}
+          </ToggleGroup>
 
-          {/* Bulk Upload Button - shown when papers need PDFs */}
-          {counts.failed > 0 && (
+          {/* Bulk Upload Button - shown only when Failed filter is selected */}
+          {filter === 'failed' && counts.failed > 0 && (
             <BulkUploadDialog
               collectionId={collectionId}
               papersNeedingPdf={papers
@@ -432,26 +436,28 @@ export function PaperList({ collectionId }: PaperListProps) {
         </div>
       </div>
 
-      {/* Paper Grid */}
-      {filteredAndSortedPapers.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          No papers match the selected filters.
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {filteredAndSortedPapers.map((paper: Paper) => (
-            <PaperCard
-              key={paper.paper_id}
-              paper={paper}
-              collectionId={collectionId}
-              selectionMode={selectionMode}
-              isSelected={selectedPaperIds.has(paper.paper_id)}
-              onSelect={handleSelectPaper}
-              onExpand={handleExpand}
-            />
-          ))}
-        </div>
-      )}
+      {/* Paper Grid - Scrollable area */}
+      <div className="flex-1 overflow-auto">
+        {filteredAndSortedPapers.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No papers match the selected filters.
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {filteredAndSortedPapers.map((paper: Paper) => (
+              <PaperCard
+                key={paper.paper_id}
+                paper={paper}
+                collectionId={collectionId}
+                selectionMode={selectionMode}
+                isSelected={selectedPaperIds.has(paper.paper_id)}
+                onSelect={handleSelectPaper}
+                onExpand={handleExpand}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Batch Delete Confirmation Dialog */}
       <AlertDialog

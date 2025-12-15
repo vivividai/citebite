@@ -16,7 +16,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { MessageSquare, Plus, Loader2 } from 'lucide-react';
+import {
+  MessageSquare,
+  Plus,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
+import { useContentPanel } from '@/components/layout/DashboardLayout';
 
 /**
  * Empty state when no collection is selected
@@ -41,6 +48,7 @@ function EmptyState() {
  */
 export function ChatPanel() {
   const { selectedCollectionId, collection } = useDashboard();
+  const { isCollapsed, toggle } = useContentPanel();
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   // Fetch conversations for the selected collection
@@ -84,10 +92,26 @@ export function ChatPanel() {
     return (
       <div className="flex flex-col h-full">
         <div className="border-b px-4 py-3">
-          <h2 className="font-semibold text-sm flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-primary" />
-            Chat
-          </h2>
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={toggle}
+              title={isCollapsed ? 'Show papers' : 'Hide papers'}
+            >
+              {isCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </Button>
+            <h2 className="font-semibold text-sm flex items-center gap-2 flex-1 justify-center">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Chat
+            </h2>
+            <div className="w-7" />
+          </div>
         </div>
         <EmptyState />
       </div>
@@ -98,10 +122,26 @@ export function ChatPanel() {
     <div className="flex flex-col h-full">
       {/* Header with conversation switcher */}
       <div className="border-b px-4 py-3 space-y-2">
-        <h2 className="font-semibold text-sm flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-primary" />
-          Chat
-        </h2>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={toggle}
+            title={isCollapsed ? 'Show papers' : 'Hide papers'}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </Button>
+          <h2 className="font-semibold text-sm flex items-center gap-2 flex-1 justify-center">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            Chat
+          </h2>
+          <div className="w-7" />
+        </div>
 
         {/* Conversation switcher */}
         <div className="flex gap-2">

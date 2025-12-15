@@ -54,3 +54,4 @@ eval-results/*-checkpoint.json
 
 # Temp files
 docs/temp/
+/temp/

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import * as d3Hierarchy from 'd3-hierarchy';
 import { useCollectionGraph } from '@/hooks/useCollectionGraph';
@@ -30,6 +31,7 @@ import {
   Maximize2,
   Info,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import type { GraphNode, PositionedNode } from '@/types/graph';
 import type { ForceGraphMethods } from 'react-force-graph-2d';
@@ -176,8 +178,10 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
     isLoading,
     error,
   } = useCollectionGraph(collectionId);
+  const queryClient = useQueryClient();
 
   // UI state
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [expandDialogOpen, setExpandDialogOpen] = useState(false);
@@ -535,6 +539,15 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
   const handleZoomOut = () => graphRef.current?.zoom(0.67, 400);
   const handleFitView = () => graphRef.current?.zoomToFit(400, 50);
 
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({
+      queryKey: ['collection-graph', collectionId],
+    });
+    setIsRefreshing(false);
+  };
+
   // Handle auto-expand preview ready
   const handleAutoExpandPreviewReady = useCallback(
     (
@@ -710,6 +723,16 @@ export function PaperGraph({ collectionId }: PaperGraphProps) {
         </Button>
         <Button variant="outline" size="icon" onClick={handleFitView}>
           <Maximize2 className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+        >
+          <RefreshCw
+            className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
+          />
         </Button>
       </div>
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCollectionPapers, Paper } from '@/hooks/useCollectionPapers';
 import { useBatchRemovePapers } from '@/hooks/useBatchRemovePapers';
 import { PaperCard } from './PaperCard';
@@ -33,6 +34,7 @@ import {
   Pencil,
   X,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
 import { ExpandCollectionDialog } from './ExpandCollectionDialog';
@@ -48,8 +50,10 @@ type SortType = 'citations' | 'year' | 'relevance';
 export function PaperList({ collectionId }: PaperListProps) {
   const { data: papers, isLoading, error } = useCollectionPapers(collectionId);
   const batchRemove = useBatchRemovePapers();
+  const queryClient = useQueryClient();
 
   const [filter, setFilter] = useState<FilterType>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<SortType>('citations');
   const [yearFrom, setYearFrom] = useState<string>('');
   const [yearTo, setYearTo] = useState<string>('');
@@ -211,6 +215,15 @@ export function PaperList({ collectionId }: PaperListProps) {
     setExpandDialogOpen(true);
   };
 
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({
+      queryKey: ['collections', collectionId, 'papers'],
+    });
+    setIsRefreshing(false);
+  };
+
   // Now conditional returns are safe
   if (isLoading) {
     return (
@@ -301,12 +314,25 @@ export function PaperList({ collectionId }: PaperListProps) {
             />
           )}
 
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="ml-auto"
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`}
+            />
+            Refresh
+          </Button>
+
           {/* Edit/Selection Mode Toggle */}
           <Button
             variant={selectionMode ? 'secondary' : 'outline'}
             size="sm"
             onClick={handleToggleSelectionMode}
-            className="ml-auto"
           >
             {selectionMode ? (
               <>

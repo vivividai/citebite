@@ -58,7 +58,7 @@ Technical documentation is organized by concern for easier navigation:
 - **Backend API work** → BACKEND.md for authentication, validation, and API patterns
 - **Database changes** → DATABASE.md for schema, migrations, and RLS policies
 - **Deployment/operations** → INFRASTRUCTURE.md for deployment configs, background jobs, and cost analysis
-- **Implementation planning** → ROADMAP.md for phase-by-phase tasks with E2E test checkpoints
+- **Implementation planning** → ROADMAP.md for phase-by-phase tasks
 
 ---
 
@@ -180,7 +180,6 @@ citebite/
 │   ├── migrations/           # SQL migration files
 │   └── config.toml           # Supabase configuration
 ├── public/                    # Static assets
-├── tests/                     # Test files
 └── .env.example              # Environment variable template
 ```
 
@@ -354,7 +353,7 @@ The project is divided into 7 phases:
 **Phase 6:** Public collection sharing
 **Phase 7:** UX polish, testing, bug fixes
 
-For detailed implementation checklist with ~110 testable tasks, E2E test checkpoints, and completion criteria for each phase, see **[ROADMAP.md](./docs/ROADMAP.md)**.
+For detailed implementation checklist with ~110 testable tasks and completion criteria for each phase, see **[ROADMAP.md](./docs/ROADMAP.md)**.
 
 ---
 
@@ -415,37 +414,11 @@ npm run queues:check
 npm run queues:clear
 ```
 
-### Running Tests
-
-**Setup (first time only):**
-
-Add to `.env.local`:
-
-```bash
-TEST_PAPER_LIMIT=10  # Limits papers to 10 for faster tests (default: 100)
-```
-
-**E2E tests (Playwright):**
-
-```bash
-npx playwright test  # Auto setup/teardown included (DB reset + Redis clear)
-npx playwright test --ui  # Interactive mode
-npx playwright test tests/e2e/03-collection-management.spec.ts  # Specific test
-```
-
-**Manual reset (if tests fail or environment is corrupted):**
-
-```bash
-npx supabase db reset --db-url $DATABASE_URL
-npm run ops:clear-queues  # or: node scripts/ops/clear-queues.ts
-```
-
 ### Adding a New API Route
 
 1. Create route file in `src/app/api/`
 2. Validate input with Zod schema
 3. Use server-side Supabase client for auth and data access
-4. Add E2E test for the route
 
 ---
 

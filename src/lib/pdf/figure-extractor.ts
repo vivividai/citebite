@@ -83,6 +83,13 @@ export async function extractFigureImage(
     opts.padding
   );
 
+  // Debug: Log crop region
+  console.log(`[Figure Extractor] Cropping ${figure.figureNumber}:`, {
+    pageSize: { width: pageWidth, height: pageHeight },
+    boundingBox: boundingBox,
+    cropRegion: region,
+  });
+
   // Create Sharp instance and crop
   let sharpInstance = sharp(pageImage).extract(region);
 

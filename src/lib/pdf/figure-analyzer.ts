@@ -109,7 +109,7 @@ export async function analyzeFigure(
 
     // 3. Analyze with Vision AI
     const response = await client.models.generateContent({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -126,7 +126,7 @@ export async function analyzeFigure(
       ],
       config: {
         temperature: 0.3, // Moderate temperature for descriptive text
-        maxOutputTokens: 1024, // 150-250 words ≈ 200-350 tokens
+        maxOutputTokens: 4096, // Increased to avoid MAX_TOKENS issues
       },
     });
 
@@ -167,7 +167,7 @@ export async function analyzeFigureWithProvidedContext(
     );
 
     const response = await client.models.generateContent({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -184,7 +184,7 @@ export async function analyzeFigureWithProvidedContext(
       ],
       config: {
         temperature: 0.3,
-        maxOutputTokens: 1024, // 150-250 words ≈ 200-350 tokens
+        maxOutputTokens: 4096, // Increased to avoid MAX_TOKENS issues
       },
     });
 

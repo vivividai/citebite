@@ -112,6 +112,23 @@ export async function detectFiguresWithPdffigures2(
       throw new Error(`pdffigures2 extraction error: ${data.error}`);
     }
 
+    // Debug: Log raw pdffigures2 response
+    console.log(
+      `[pdffigures2] Raw response (${data.figures?.length || 0} figures):`,
+      JSON.stringify(
+        data.figures?.map(f => ({
+          name: f.name,
+          figType: f.figType,
+          page: f.page,
+          captionPreview: f.caption?.substring(0, 50),
+          regionBoundary: f.regionBoundary,
+          imageBoundary: f.imageBoundary,
+        })),
+        null,
+        2
+      )
+    );
+
     return data.figures || [];
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -273,6 +290,7 @@ export function convertToDetectedFigures(
 
     // Use imageBoundary if available (figure content only), otherwise use regionBoundary
     const boundary = fig.imageBoundary || fig.regionBoundary;
+    const usedImageBoundary = !!fig.imageBoundary;
 
     const boundingBox = convertToNormalizedBoundingBox(
       boundary,
@@ -280,6 +298,20 @@ export function convertToDetectedFigures(
       pageDim.height,
       renderedDpi
     );
+
+    // Debug: Log coordinate conversion
+    console.log(`[pdffigures2] Converting ${fig.figType} ${fig.name}:`, {
+      usedImageBoundary,
+      rawBoundary: boundary,
+      pageDim: { width: pageDim.width, height: pageDim.height },
+      normalizedBox: boundingBox,
+      pixelBox: {
+        x: Math.round(boundingBox.x * pageDim.width),
+        y: Math.round(boundingBox.y * pageDim.height),
+        width: Math.round(boundingBox.width * pageDim.width),
+        height: Math.round(boundingBox.height * pageDim.height),
+      },
+    });
 
     // Construct full figure number with type prefix (e.g., "Figure 3", "Table 2")
     // pdffigures2 returns just the number in 'name' field, so we prepend the type
@@ -298,7 +330,64 @@ export function convertToDetectedFigures(
     figuresByPage.get(pageNumber)!.push(detectedFigure);
   }
 
-  return figuresByPage;
+  // Deduplicate: keep only the largest region for each figure number
+  const deduplicatedByPage = new Map<number, DetectedFigure[]>();
+
+  for (const [pageNumber, figures] of figuresByPage) {
+    // Group by figure number
+    const figuresByNumber = new Map<string, DetectedFigure[]>();
+    for (const fig of figures) {
+      if (!figuresByNumber.has(fig.figureNumber)) {
+        figuresByNumber.set(fig.figureNumber, []);
+      }
+      figuresByNumber.get(fig.figureNumber)!.push(fig);
+    }
+
+    // For each figure number, keep the one with largest area
+    const deduplicated: DetectedFigure[] = [];
+    for (const [figureNumber, duplicates] of figuresByNumber) {
+      if (duplicates.length === 1) {
+        deduplicated.push(duplicates[0]);
+      } else {
+        // Select the one with largest area
+        const largest = duplicates.reduce((best, current) => {
+          const bestArea = best.boundingBox.width * best.boundingBox.height;
+          const currentArea =
+            current.boundingBox.width * current.boundingBox.height;
+          return currentArea > bestArea ? current : best;
+        });
+        console.log(
+          `[pdffigures2] Deduplicating ${figureNumber}: kept largest of ${duplicates.length} detections`
+        );
+        deduplicated.push(largest);
+      }
+    }
+
+    deduplicatedByPage.set(pageNumber, deduplicated);
+  }
+
+  // Also deduplicate across pages (same figure spanning multiple pages)
+  const allFigureNumbers = new Set<string>();
+  const finalResult = new Map<number, DetectedFigure[]>();
+
+  for (const [pageNumber, figures] of deduplicatedByPage) {
+    const uniqueFigures: DetectedFigure[] = [];
+    for (const fig of figures) {
+      if (!allFigureNumbers.has(fig.figureNumber)) {
+        allFigureNumbers.add(fig.figureNumber);
+        uniqueFigures.push(fig);
+      } else {
+        console.log(
+          `[pdffigures2] Skipping duplicate ${fig.figureNumber} on page ${pageNumber} (already found on earlier page)`
+        );
+      }
+    }
+    if (uniqueFigures.length > 0) {
+      finalResult.set(pageNumber, uniqueFigures);
+    }
+  }
+
+  return finalResult;
 }
 
 /**

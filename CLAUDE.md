@@ -48,6 +48,7 @@ Technical documentation is organized by concern for easier navigation:
 - **[DATABASE.md](./docs/planning/DATABASE.md)** - Database design (PostgreSQL schema, Supabase CLI, SQL migrations, Supabase Storage, RLS policies)
 - **[INFRASTRUCTURE.md](./docs/planning/INFRASTRUCTURE.md)** - Background jobs (BullMQ), deployment (Vercel, Railway), security, testing, and cost analysis
 - **[MULTIMODAL_RAG.md](./docs/planning/MULTIMODAL_RAG.md)** - Multimodal RAG implementation plan (Figure/Chart extraction and analysis)
+- **[DEPLOYMENT.md](./docs/DEPLOYMENT.md)** - Step-by-step production deployment guide (Vercel, Railway, Supabase, Upstash)
 - **[ROADMAP.md](./docs/ROADMAP.md)** - Detailed implementation checklist with 8 phases (~110 testable tasks)
 
 **When to reference each document:**
@@ -58,6 +59,7 @@ Technical documentation is organized by concern for easier navigation:
 - **Backend API work** → BACKEND.md for authentication, validation, and API patterns
 - **Database changes** → DATABASE.md for schema, migrations, and RLS policies
 - **Deployment/operations** → INFRASTRUCTURE.md for deployment configs, background jobs, and cost analysis
+- **Production deployment** → DEPLOYMENT.md for step-by-step Vercel, Railway, Supabase setup
 - **Implementation planning** → ROADMAP.md for phase-by-phase tasks
 
 ---

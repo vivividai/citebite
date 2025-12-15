@@ -267,7 +267,6 @@ export type Database = {
         Row: {
           chunk_index: number;
           chunk_type: string;
-          collection_id: string;
           content: string;
           content_tsv: unknown;
           created_at: string | null;
@@ -286,7 +285,6 @@ export type Database = {
         Insert: {
           chunk_index: number;
           chunk_type?: string;
-          collection_id: string;
           content: string;
           content_tsv?: unknown;
           created_at?: string | null;
@@ -305,7 +303,6 @@ export type Database = {
         Update: {
           chunk_index?: number;
           chunk_type?: string;
-          collection_id?: string;
           content?: string;
           content_tsv?: unknown;
           created_at?: string | null;
@@ -322,13 +319,6 @@ export type Database = {
           token_count?: number;
         };
         Relationships: [
-          {
-            foreignKeyName: 'paper_chunks_collection_id_fkey';
-            columns: ['collection_id'];
-            isOneToOne: false;
-            referencedRelation: 'collections';
-            referencedColumns: ['id'];
-          },
           {
             foreignKeyName: 'paper_chunks_paper_id_fkey';
             columns: ['paper_id'];

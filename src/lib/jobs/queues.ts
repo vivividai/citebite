@@ -8,13 +8,11 @@ import { getRedisClient } from '@/lib/redis/client';
 
 // Job data type definitions
 export interface PdfDownloadJobData {
-  collectionId: string;
   paperId: string;
   pdfUrl: string;
 }
 
 export interface PdfIndexJobData {
-  collectionId: string;
   paperId: string;
   storageKey: string; // Key in Supabase Storage
 }
@@ -25,7 +23,6 @@ export interface BulkUploadCleanupJobData {
 }
 
 export interface FigureAnalysisJobData {
-  collectionId: string;
   paperId: string;
   storageKey: string;
 }

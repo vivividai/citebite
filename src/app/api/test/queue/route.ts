@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
     switch (queueType) {
       case 'pdf-download':
         jobId = await queuePdfDownload({
-          collectionId: 'test-collection-123',
           paperId: 'test-paper-456',
           pdfUrl: 'https://example.com/test.pdf',
         });
@@ -35,7 +34,6 @@ export async function POST(request: NextRequest) {
 
       case 'pdf-indexing':
         jobId = await queuePdfIndexing({
-          collectionId: 'test-collection-123',
           paperId: 'test-paper-456',
           storageKey: 'test-storage-key',
         });

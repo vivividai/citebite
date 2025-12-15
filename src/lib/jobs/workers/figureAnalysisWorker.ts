@@ -7,6 +7,7 @@
  * - Figure extraction and analysis with Gemini Vision
  * - Figure chunk indexing
  *
+ * Figures are stored once per paper (not per collection) to prevent duplicates.
  * This worker runs after text indexing completes successfully.
  */
 
@@ -55,7 +56,7 @@ let figureAnalysisWorker: Worker<FigureAnalysisJobData> | null = null;
  * 9. Update image_vector_status to 'completed'
  */
 async function processFigureAnalysis(job: Job<FigureAnalysisJobData>) {
-  const { collectionId, paperId } = job.data;
+  const { paperId } = job.data;
 
   console.log(
     `[Figure Analysis Worker] Processing job ${job.id} for paper ${paperId}`
@@ -78,7 +79,7 @@ async function processFigureAnalysis(job: Job<FigureAnalysisJobData>) {
     console.log(`[Figure Analysis Worker] Downloading PDF...`);
     let pdfBuffer: Buffer;
     try {
-      pdfBuffer = await downloadPdf(collectionId, paperId);
+      pdfBuffer = await downloadPdf(paperId);
     } catch (error) {
       throw new Error(
         `Failed to download PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -161,7 +162,7 @@ async function processFigureAnalysis(job: Job<FigureAnalysisJobData>) {
     await job.updateProgress(55);
 
     // Get text chunks with figure references for context
-    const textChunks = await getTextChunksWithFigureRefs(paperId, collectionId);
+    const textChunks = await getTextChunksWithFigureRefs(paperId);
     const figureNumbers = allCroppedFigures.map(f => f.normalizedFigureNumber);
     const textContextMap = buildTextContextMap(textChunks, figureNumbers);
 
@@ -207,11 +208,7 @@ async function processFigureAnalysis(job: Job<FigureAnalysisJobData>) {
     console.log(`[Figure Analysis Worker] Indexing figure chunks...`);
     await job.updateProgress(90);
 
-    const indexed = await indexAnalyzedFigures(
-      analyzedFigures,
-      paperId,
-      collectionId
-    );
+    const indexed = await indexAnalyzedFigures(analyzedFigures, paperId);
 
     console.log(
       `[Figure Analysis Worker] Indexed ${indexed.length} figure chunks`

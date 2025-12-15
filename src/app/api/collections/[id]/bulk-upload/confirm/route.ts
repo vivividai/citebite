@@ -185,7 +185,6 @@ export async function POST(
         // Move file from temp to permanent storage
         const permanentPath = await moveFromTempToPermanent(
           file.tempStorageKey,
-          collectionId,
           match.paperId
         );
 
@@ -207,7 +206,6 @@ export async function POST(
 
         // Queue indexing job
         const jobId = await queuePdfIndexing({
-          collectionId,
           paperId: match.paperId,
           storageKey: permanentPath,
         });

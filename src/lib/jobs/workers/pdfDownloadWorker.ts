@@ -1,13 +1,20 @@
 /**
  * PDF Download Worker
  * Downloads PDFs from Semantic Scholar and uploads to Supabase Storage
+ *
+ * PDFs are stored once per paper (not per collection) to prevent duplicates.
+ * If PDF already exists, download is skipped.
  */
 
 import { Worker, Job } from 'bullmq';
 import axios from 'axios';
 import { getRedisClient } from '@/lib/redis/client';
 import { PdfDownloadJobData, queuePdfIndexing } from '../queues';
-import { uploadPdf, getStoragePath } from '@/lib/storage/supabaseStorage';
+import {
+  uploadPdf,
+  getStoragePath,
+  pdfExists,
+} from '@/lib/storage/supabaseStorage';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 
 // Worker instance
@@ -91,14 +98,36 @@ async function updatePaperStatus(
  * Process PDF download job
  */
 async function processPdfDownload(job: Job<PdfDownloadJobData>) {
-  const { collectionId, paperId, pdfUrl } = job.data;
+  const { paperId, pdfUrl } = job.data;
 
   console.log(
     `[PDF Download Worker] Processing job ${job.id} for paper ${paperId}`
   );
-  console.log(`[PDF Download Worker] Downloading from: ${pdfUrl}`);
 
   try {
+    // Check if PDF already exists (skip duplicate downloads)
+    const alreadyExists = await pdfExists(paperId);
+    if (alreadyExists) {
+      console.log(
+        `[PDF Download Worker] PDF already exists for paper ${paperId}, skipping download`
+      );
+
+      // Still queue indexing job in case it wasn't indexed yet
+      const storageKey = getStoragePath(paperId);
+      const indexJobId = await queuePdfIndexing({
+        paperId,
+        storageKey,
+      });
+
+      if (indexJobId) {
+        console.log(`[PDF Download Worker] Queued indexing job: ${indexJobId}`);
+      }
+
+      return { success: true, paperId, skipped: true };
+    }
+
+    console.log(`[PDF Download Worker] Downloading from: ${pdfUrl}`);
+
     // Step 1: Download PDF from Semantic Scholar
     const pdfBuffer = await downloadPdfFromUrl(pdfUrl);
     console.log(
@@ -106,7 +135,7 @@ async function processPdfDownload(job: Job<PdfDownloadJobData>) {
     );
 
     // Step 2: Upload to Supabase Storage
-    const storagePath = await uploadPdf(collectionId, paperId, pdfBuffer);
+    const storagePath = await uploadPdf(paperId, pdfBuffer);
     console.log(`[PDF Download Worker] Uploaded to storage: ${storagePath}`);
 
     // Step 3: Update database status to 'processing' (ready for indexing)
@@ -114,9 +143,8 @@ async function processPdfDownload(job: Job<PdfDownloadJobData>) {
     console.log(`[PDF Download Worker] Updated paper status to 'processing'`);
 
     // Step 4: Queue PDF indexing job
-    const storageKey = getStoragePath(collectionId, paperId);
+    const storageKey = getStoragePath(paperId);
     const indexJobId = await queuePdfIndexing({
-      collectionId,
       paperId,
       storageKey,
     });

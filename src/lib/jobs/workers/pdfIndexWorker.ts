@@ -4,6 +4,9 @@
  * Extracts text from PDFs, chunks them, generates embeddings,
  * and stores in pgvector for hybrid search.
  *
+ * Chunks are stored once per paper (not per collection) to prevent duplicates.
+ * If paper is already indexed, indexing is skipped.
+ *
  * Note: Figure/image processing is handled by the separate figureAnalysisWorker.
  */
 
@@ -18,6 +21,7 @@ import { generateDocumentEmbeddings } from '@/lib/rag/embeddings';
 import {
   insertChunksWithFigureRefs,
   deleteChunksForPaper,
+  isPaperIndexed,
 } from '@/lib/db/chunks';
 import { getStoragePath } from '@/lib/storage/supabaseStorage';
 
@@ -28,22 +32,52 @@ let pdfIndexWorker: Worker<PdfIndexJobData> | null = null;
  * Process PDF indexing job (text only)
  *
  * Pipeline:
- * 1. Download PDF from Supabase Storage
- * 2. Extract text using pdf-parse
- * 3. Chunk text with figure reference extraction
- * 4. Generate embeddings and insert text chunks
- * 5. Update text_vector_status to 'completed'
- * 6. Queue figure analysis job (separate worker)
+ * 1. Check if paper already indexed (skip if so)
+ * 2. Download PDF from Supabase Storage
+ * 3. Extract text using pdf-parse
+ * 4. Chunk text with figure reference extraction
+ * 5. Generate embeddings and insert text chunks
+ * 6. Update text_vector_status to 'completed'
+ * 7. Queue figure analysis job (separate worker)
  */
 async function processPdfIndexing(job: Job<PdfIndexJobData>) {
-  const { collectionId, paperId, storageKey } = job.data;
+  const { paperId, storageKey } = job.data;
 
   console.log(
-    `[PDF Index Worker] Processing job ${job.id} for paper ${paperId} in collection ${collectionId}`
+    `[PDF Index Worker] Processing job ${job.id} for paper ${paperId}`
   );
 
   try {
     const supabase = createAdminSupabaseClient();
+
+    // Step 0: Check if paper already indexed (skip duplicates)
+    const alreadyIndexed = await isPaperIndexed(paperId);
+    if (alreadyIndexed) {
+      console.log(
+        `[PDF Index Worker] Paper ${paperId} already indexed, skipping`
+      );
+
+      // Update status to completed if not already
+      await supabase
+        .from('papers')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ text_vector_status: 'completed' } as any)
+        .eq('paper_id', paperId);
+
+      // Still queue figure analysis in case it wasn't done
+      const figureJobId = await queueFigureAnalysis({
+        paperId,
+        storageKey: storageKey || getStoragePath(paperId),
+      });
+
+      if (figureJobId) {
+        console.log(
+          `[PDF Index Worker] Queued figure analysis job: ${figureJobId}`
+        );
+      }
+
+      return { success: true, paperId, skipped: true };
+    }
 
     // Step 1: Download PDF from Supabase Storage
     console.log(`[PDF Index Worker] Downloading PDF from storage...`);
@@ -51,7 +85,7 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
 
     let pdfBuffer: Buffer;
     try {
-      pdfBuffer = await downloadPdf(collectionId, paperId);
+      pdfBuffer = await downloadPdf(paperId);
     } catch (error) {
       throw new Error(
         `Failed to download PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -117,7 +151,7 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
     console.log(`[PDF Index Worker] Clearing existing chunks...`);
     await job.updateProgress(30);
 
-    await deleteChunksForPaper(paperId, collectionId);
+    await deleteChunksForPaper(paperId);
 
     // Step 6: Insert text chunks into pgvector
     console.log(`[PDF Index Worker] Inserting text chunks into pgvector...`);
@@ -126,7 +160,6 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
     await insertChunksWithFigureRefs(
       chunks.map((chunk, i) => ({
         paperId,
-        collectionId,
         content: chunk.content,
         chunkIndex: chunk.chunkIndex,
         tokenCount: chunk.tokenCount,
@@ -159,9 +192,8 @@ async function processPdfIndexing(job: Job<PdfIndexJobData>) {
     await job.updateProgress(95);
 
     const figureJobId = await queueFigureAnalysis({
-      collectionId,
       paperId,
-      storageKey: storageKey || getStoragePath(collectionId, paperId),
+      storageKey: storageKey || getStoragePath(paperId),
     });
 
     if (figureJobId) {

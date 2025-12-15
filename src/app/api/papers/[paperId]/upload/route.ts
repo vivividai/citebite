@@ -97,7 +97,7 @@ export async function POST(
 
     // 8. Upload to Supabase Storage
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = await uploadPdf(collectionId, paperId, buffer);
+    const storagePath = await uploadPdf(paperId, buffer);
 
     // 9. Update paper record in database
     const { error: updateError } = await supabase
@@ -121,7 +121,6 @@ export async function POST(
 
     // 10. Queue PDF indexing job
     const jobId = await queuePdfIndexing({
-      collectionId,
       paperId,
       storageKey: storagePath,
     });

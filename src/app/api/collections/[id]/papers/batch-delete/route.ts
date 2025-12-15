@@ -1,14 +1,15 @@
 /**
  * Batch Paper Removal API
  * POST /api/collections/[id]/papers/batch-delete - Remove multiple papers from collection
+ *
+ * Note: This only removes the collection_papers links.
+ * Chunks and PDFs are NOT deleted (they may be used by other collections).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCollectionWithOwnership } from '@/lib/db/collections';
-import { deleteChunksForPaper } from '@/lib/db/chunks';
-import { deletePdf, pdfExists } from '@/lib/storage/supabaseStorage';
 
 const batchDeleteSchema = z.object({
   paperIds: z
@@ -28,7 +29,7 @@ interface DeleteResult {
 
 /**
  * POST /api/collections/[id]/papers/batch-delete
- * Remove multiple papers from a collection
+ * Remove multiple papers from a collection (only removes links, keeps chunks and PDFs)
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
@@ -94,30 +95,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       try {
-        // 1. Delete vector chunks
-        try {
-          await deleteChunksForPaper(paperId, collectionId);
-        } catch (chunkError) {
-          console.warn(
-            `[Batch Delete] Failed to delete chunks for paper ${paperId}:`,
-            chunkError
-          );
-        }
-
-        // 2. Delete PDF from storage
-        try {
-          const hasPdf = await pdfExists(collectionId, paperId);
-          if (hasPdf) {
-            await deletePdf(collectionId, paperId);
-          }
-        } catch (pdfError) {
-          console.warn(
-            `[Batch Delete] Failed to delete PDF for paper ${paperId}:`,
-            pdfError
-          );
-        }
-
-        // 3. Remove link from collection_papers
+        // Remove link from collection_papers
+        // Note: Chunks and PDF are NOT deleted - they may be used by other collections
         const { error: deleteError } = await supabase
           .from('collection_papers')
           .delete()

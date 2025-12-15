@@ -1,13 +1,14 @@
 /**
  * Single Paper Management API
  * DELETE /api/collections/[id]/papers/[paperId] - Remove a paper from collection
+ *
+ * Note: This only removes the collection_papers link.
+ * Chunks and PDFs are NOT deleted (they may be used by other collections).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCollectionWithOwnership } from '@/lib/db/collections';
-import { deleteChunksForPaper } from '@/lib/db/chunks';
-import { deletePdf, pdfExists } from '@/lib/storage/supabaseStorage';
 
 interface RouteParams {
   params: Promise<{ id: string; paperId: string }>;
@@ -15,7 +16,7 @@ interface RouteParams {
 
 /**
  * DELETE /api/collections/[id]/papers/[paperId]
- * Remove a paper from a collection (including chunks and PDF)
+ * Remove a paper from a collection (only removes the link, keeps chunks and PDF)
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
@@ -50,32 +51,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 1. Delete vector chunks for this paper in this collection
-    try {
-      await deleteChunksForPaper(paperId, collectionId);
-    } catch (chunkError) {
-      console.warn(
-        `[Paper Remove] Failed to delete chunks for paper ${paperId}:`,
-        chunkError
-      );
-      // Continue - chunks may not exist if paper wasn't indexed
-    }
-
-    // 2. Delete PDF from storage (if exists)
-    try {
-      const hasPdf = await pdfExists(collectionId, paperId);
-      if (hasPdf) {
-        await deletePdf(collectionId, paperId);
-      }
-    } catch (pdfError) {
-      console.warn(
-        `[Paper Remove] Failed to delete PDF for paper ${paperId}:`,
-        pdfError
-      );
-      // Continue - PDF may not exist
-    }
-
-    // 3. Remove link from collection_papers
+    // Remove link from collection_papers
+    // Note: Chunks and PDF are NOT deleted - they may be used by other collections
+    // and can be reused if the paper is added back to this collection
     const { error: deleteError } = await supabase
       .from('collection_papers')
       .delete()

@@ -1,7 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, TablesInsert } from '@/types/database.types';
-import { deleteCollectionPdfs } from '@/lib/storage/supabaseStorage';
-import { deleteChunksForCollection } from '@/lib/db/chunks';
 import type { RelationshipType } from '@/types/graph';
 
 type CollectionInsert = TablesInsert<'collections'>;
@@ -220,11 +218,13 @@ export async function getCollectionById(
 
 /**
  * Delete a collection by ID with ownership check
- * This will cascade delete all related data:
- * - Vector chunks from pgvector (paper_chunks)
- * - PDFs from Supabase Storage
- * - collection_papers entries
- * - conversations and messages
+ *
+ * This only deletes:
+ * - collection_papers entries (CASCADE)
+ * - conversations and messages (CASCADE)
+ *
+ * Chunks and PDFs are NOT deleted (orphan handling = keep).
+ * They can be reused if the same paper is added to another collection.
  */
 export async function deleteCollection(
   supabase: SupabaseClient<Database>,
@@ -234,33 +234,8 @@ export async function deleteCollection(
   // First verify ownership
   await getCollectionWithOwnership(supabase, collectionId, userId);
 
-  // Delete all vector chunks for this collection
-  try {
-    await deleteChunksForCollection(collectionId);
-    console.log(`Deleted vector chunks for collection ${collectionId}`);
-  } catch (error) {
-    console.error(
-      `Failed to delete chunks for collection ${collectionId}:`,
-      error
-    );
-  }
-
-  // Delete all PDFs from Supabase Storage
-  try {
-    const deletedCount = await deleteCollectionPdfs(collectionId);
-    console.log(
-      `Deleted ${deletedCount} PDF files for collection ${collectionId}`
-    );
-  } catch (error) {
-    // Log error but don't fail the entire deletion
-    // Storage cleanup failure shouldn't prevent collection deletion
-    console.error(
-      `Failed to delete PDFs for collection ${collectionId}:`,
-      error
-    );
-  }
-
-  // Delete the collection (CASCADE will handle related data)
+  // Delete the collection (CASCADE will handle collection_papers, conversations, messages)
+  // Note: Chunks and PDFs are NOT deleted - they may be used by other collections
   const { error } = await supabase
     .from('collections')
     .delete()
@@ -270,4 +245,8 @@ export async function deleteCollection(
   if (error) {
     throw new Error(`Failed to delete collection: ${error.message}`);
   }
+
+  console.log(
+    `Deleted collection ${collectionId} (orphan chunks and PDFs kept)`
+  );
 }

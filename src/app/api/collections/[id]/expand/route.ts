@@ -143,7 +143,6 @@ export async function POST(
       if (!paper.openAccessPdf?.url) continue;
 
       const jobId = await queuePdfDownload({
-        collectionId: params.id,
         paperId: paper.paperId,
         pdfUrl: paper.openAccessPdf.url,
       });

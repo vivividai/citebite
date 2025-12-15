@@ -3,6 +3,8 @@
  *
  * Handles storing figure chunks in the database with embeddings.
  * Creates searchable entries for figures detected in PDFs.
+ *
+ * Figures are stored once per paper (not per collection) to prevent duplicates.
  */
 
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
@@ -12,7 +14,6 @@ import { FigureAnalysis } from '@/lib/pdf/figure-analyzer';
 
 export interface FigureChunkInput {
   paperId: string;
-  collectionId: string;
   figureNumber: string;
   normalizedFigureNumber: string;
   caption: string;
@@ -41,7 +42,7 @@ export interface IndexedFigure {
  * @example
  * ```typescript
  * const count = await indexFigures([
- *   { paperId: 'paper123', collectionId: 'col456', figureNumber: 'Figure 1', ... }
+ *   { paperId: 'paper123', figureNumber: 'Figure 1', ... }
  * ]);
  * console.log(`Indexed ${count} figures`);
  * ```
@@ -95,7 +96,6 @@ export async function indexFigures(
 
   const records = figures.map((fig, i) => ({
     paper_id: fig.paperId,
-    collection_id: fig.collectionId,
     chunk_type: 'figure',
     content: contents[i],
     chunk_index: FIGURE_INDEX_OFFSET + i,
@@ -113,7 +113,7 @@ export async function indexFigures(
   const { data, error } = await supabase
     .from('paper_chunks')
     .upsert(records, {
-      onConflict: 'paper_id,collection_id,chunk_index',
+      onConflict: 'paper_id,chunk_index,chunk_type',
       ignoreDuplicates: false,
     })
     .select('id, figure_number, image_storage_path');
@@ -144,17 +144,14 @@ export async function indexFigures(
  *
  * @param figures - Analyzed figure data from figure-analyzer
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @returns Number of figures indexed
  */
 export async function indexAnalyzedFigures(
   figures: FigureAnalysis[],
-  paperId: string,
-  collectionId: string
+  paperId: string
 ): Promise<IndexedFigure[]> {
   const inputs: FigureChunkInput[] = figures.map(fig => ({
     paperId,
-    collectionId,
     figureNumber: fig.figureNumber,
     normalizedFigureNumber: fig.normalizedFigureNumber,
     caption: fig.caption,
@@ -172,20 +169,15 @@ export async function indexAnalyzedFigures(
  * Delete all figure chunks for a paper
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @returns Number of chunks deleted
  */
-export async function deleteFigureChunks(
-  paperId: string,
-  collectionId: string
-): Promise<number> {
+export async function deleteFigureChunks(paperId: string): Promise<number> {
   const supabase = createAdminSupabaseClient();
 
   const { data, error } = await supabase
     .from('paper_chunks')
     .delete()
     .eq('paper_id', paperId)
-    .eq('collection_id', collectionId)
     .eq('chunk_type', 'figure')
     .select('id');
 
@@ -226,13 +218,11 @@ function buildFigureContent(
  * Get figure chunk by figure number
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @param figureNumber - Normalized figure number
  * @returns Figure chunk data or null
  */
 export async function getFigureChunk(
   paperId: string,
-  collectionId: string,
   figureNumber: string
 ): Promise<{
   id: string;
@@ -250,7 +240,6 @@ export async function getFigureChunk(
       'id, content, figure_caption, figure_description, image_storage_path, page_number'
     )
     .eq('paper_id', paperId)
-    .eq('collection_id', collectionId)
     .eq('chunk_type', 'figure')
     .eq('figure_number', figureNumber)
     .single();

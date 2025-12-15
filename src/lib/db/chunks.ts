@@ -3,16 +3,14 @@
  *
  * CRUD operations for storing and managing chunked paper text with embeddings.
  *
- * Note: paper_chunks table is created by the pgvector migration.
- * TypeScript types will be available after running `npx supabase gen types`.
- * Until then, we use raw SQL via supabase.rpc() for type safety.
+ * Note: paper_chunks table stores chunks per paper (not per collection).
+ * This prevents duplicate embeddings when the same paper is in multiple collections.
  */
 
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 
 export interface ChunkInsert {
   paperId: string;
-  collectionId: string;
   content: string;
   chunkIndex: number;
   tokenCount: number;
@@ -32,7 +30,6 @@ export interface InsertedChunkWithRefs {
 export interface StoredChunk {
   id: string;
   paperId: string;
-  collectionId: string;
   content: string;
   chunkIndex: number;
   tokenCount: number;
@@ -43,6 +40,7 @@ export interface StoredChunk {
  * Insert chunks into the database
  *
  * Uses upsert to handle re-indexing of papers.
+ * Chunks are stored per paper (not per collection) to prevent duplicates.
  *
  * @param chunks - Array of chunks to insert
  * @throws Error if insertion fails
@@ -50,7 +48,7 @@ export interface StoredChunk {
  * @example
  * ```typescript
  * await insertChunks([
- *   { paperId: 'abc123', collectionId: 'uuid', content: '...', chunkIndex: 0, tokenCount: 100, embedding: [...] }
+ *   { paperId: 'abc123', content: '...', chunkIndex: 0, tokenCount: 100, embedding: [...] }
  * ]);
  * ```
  */
@@ -64,10 +62,10 @@ export async function insertChunks(chunks: ChunkInsert[]): Promise<void> {
   // Transform to database format
   const records = chunks.map(c => ({
     paper_id: c.paperId,
-    collection_id: c.collectionId,
     content: c.content,
     chunk_index: c.chunkIndex,
     token_count: c.tokenCount,
+    chunk_type: 'text',
     // pgvector expects array format - Supabase handles the conversion
     embedding: JSON.stringify(c.embedding),
   }));
@@ -82,7 +80,7 @@ export async function insertChunks(chunks: ChunkInsert[]): Promise<void> {
     const { error } = await (supabase as any)
       .from('paper_chunks')
       .upsert(batch, {
-        onConflict: 'paper_id,collection_id,chunk_index',
+        onConflict: 'paper_id,chunk_index,chunk_type',
       });
 
     if (error) {
@@ -110,7 +108,7 @@ export async function insertChunks(chunks: ChunkInsert[]): Promise<void> {
  * @example
  * ```typescript
  * const inserted = await insertChunksWithFigureRefs([
- *   { paperId: 'abc123', collectionId: 'uuid', content: '...', chunkIndex: 0, tokenCount: 100, embedding: [...], referencedFigures: ['Figure 1'] }
+ *   { paperId: 'abc123', content: '...', chunkIndex: 0, tokenCount: 100, embedding: [...], referencedFigures: ['Figure 1'] }
  * ]);
  * // inserted = [{ id: 'chunk-uuid', chunkIndex: 0, referencedFigures: ['Figure 1'] }]
  * ```
@@ -127,7 +125,6 @@ export async function insertChunksWithFigureRefs(
   // Transform to database format with figure references
   const records = chunks.map(c => ({
     paper_id: c.paperId,
-    collection_id: c.collectionId,
     content: c.content,
     chunk_index: c.chunkIndex,
     token_count: c.tokenCount,
@@ -150,7 +147,7 @@ export async function insertChunksWithFigureRefs(
     const { data, error } = await (supabase as any)
       .from('paper_chunks')
       .upsert(batch, {
-        onConflict: 'paper_id,collection_id,chunk_index',
+        onConflict: 'paper_id,chunk_index,chunk_type',
       })
       .select('id, chunk_index, referenced_figures');
 
@@ -192,74 +189,60 @@ export async function insertChunksWithFigureRefs(
 }
 
 /**
- * Delete all chunks for a specific paper in a collection
+ * Delete all chunks for a specific paper
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @throws Error if deletion fails
  */
-export async function deleteChunksForPaper(
-  paperId: string,
-  collectionId: string
-): Promise<void> {
+export async function deleteChunksForPaper(paperId: string): Promise<void> {
   const supabase = createAdminSupabaseClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any)
     .from('paper_chunks')
     .delete()
-    .eq('paper_id', paperId)
-    .eq('collection_id', collectionId);
+    .eq('paper_id', paperId);
 
   if (error) {
     throw new Error(`Failed to delete chunks: ${error.message}`);
   }
 
-  console.log(
-    `[Chunks DB] Deleted chunks for paper ${paperId} in collection ${collectionId}`
-  );
+  console.log(`[Chunks DB] Deleted chunks for paper ${paperId}`);
 }
 
 /**
- * Delete all chunks for a collection
+ * Get chunk count for a collection (via collection_papers join)
  *
  * @param collectionId - Collection ID
- * @throws Error if deletion fails
- */
-export async function deleteChunksForCollection(
-  collectionId: string
-): Promise<void> {
-  const supabase = createAdminSupabaseClient();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase as any)
-    .from('paper_chunks')
-    .delete()
-    .eq('collection_id', collectionId);
-
-  if (error) {
-    throw new Error(`Failed to delete collection chunks: ${error.message}`);
-  }
-
-  console.log(`[Chunks DB] Deleted all chunks for collection ${collectionId}`);
-}
-
-/**
- * Get chunk count for a collection
- *
- * @param collectionId - Collection ID
- * @returns Number of chunks in the collection
+ * @returns Number of chunks for papers in the collection
  */
 export async function getChunkCountForCollection(
   collectionId: string
 ): Promise<number> {
   const supabase = createAdminSupabaseClient();
 
+  // First get all paper IDs in the collection
+  const { data: collectionPapers, error: cpError } = await supabase
+    .from('collection_papers')
+    .select('paper_id')
+    .eq('collection_id', collectionId);
+
+  if (cpError) {
+    throw new Error(`Failed to get collection papers: ${cpError.message}`);
+  }
+
+  if (!collectionPapers || collectionPapers.length === 0) {
+    return 0;
+  }
+
+  const paperIds = collectionPapers.map(cp => cp.paper_id);
+
+  // Count chunks for these papers
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { count, error } = await (supabase as any)
     .from('paper_chunks')
     .select('*', { count: 'exact', head: true })
-    .eq('collection_id', collectionId);
+    .in('paper_id', paperIds);
 
   if (error) {
     throw new Error(`Failed to count chunks: ${error.message}`);
@@ -269,24 +252,19 @@ export async function getChunkCountForCollection(
 }
 
 /**
- * Get chunk count for a paper in a collection
+ * Get chunk count for a paper
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @returns Number of chunks for the paper
  */
-export async function getChunkCountForPaper(
-  paperId: string,
-  collectionId: string
-): Promise<number> {
+export async function getChunkCountForPaper(paperId: string): Promise<number> {
   const supabase = createAdminSupabaseClient();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { count, error } = await (supabase as any)
     .from('paper_chunks')
     .select('*', { count: 'exact', head: true })
-    .eq('paper_id', paperId)
-    .eq('collection_id', collectionId);
+    .eq('paper_id', paperId);
 
   if (error) {
     throw new Error(`Failed to count paper chunks: ${error.message}`);
@@ -296,17 +274,13 @@ export async function getChunkCountForPaper(
 }
 
 /**
- * Check if a paper has been indexed in a collection
+ * Check if a paper has been indexed
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
- * @returns true if paper has chunks in the collection
+ * @returns true if paper has chunks
  */
-export async function isPaperIndexed(
-  paperId: string,
-  collectionId: string
-): Promise<boolean> {
-  const count = await getChunkCountForPaper(paperId, collectionId);
+export async function isPaperIndexed(paperId: string): Promise<boolean> {
+  const count = await getChunkCountForPaper(paperId);
   return count > 0;
 }
 
@@ -321,21 +295,38 @@ export async function getIndexedPaperIds(
 ): Promise<string[]> {
   const supabase = createAdminSupabaseClient();
 
+  // First get all paper IDs in the collection
+  const { data: collectionPapers, error: cpError } = await supabase
+    .from('collection_papers')
+    .select('paper_id')
+    .eq('collection_id', collectionId);
+
+  if (cpError) {
+    throw new Error(`Failed to get collection papers: ${cpError.message}`);
+  }
+
+  if (!collectionPapers || collectionPapers.length === 0) {
+    return [];
+  }
+
+  const paperIds = collectionPapers.map(cp => cp.paper_id);
+
+  // Check which of these papers have chunks
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('paper_chunks')
     .select('paper_id')
-    .eq('collection_id', collectionId);
+    .in('paper_id', paperIds);
 
   if (error) {
     throw new Error(`Failed to get indexed papers: ${error.message}`);
   }
 
   // Get unique paper IDs
-  const paperIds = (data || []).map(
+  const indexedPaperIds = (data || []).map(
     (row: { paper_id: string }) => row.paper_id
   );
-  const uniqueIds: string[] = Array.from(new Set(paperIds));
+  const uniqueIds: string[] = Array.from(new Set(indexedPaperIds));
   return uniqueIds;
 }
 
@@ -345,12 +336,10 @@ export async function getIndexedPaperIds(
  * Used by the figure analysis worker to provide context during figure analysis.
  *
  * @param paperId - Paper ID
- * @param collectionId - Collection ID
  * @returns Array of text chunks with figure references
  */
 export async function getTextChunksWithFigureRefs(
-  paperId: string,
-  collectionId: string
+  paperId: string
 ): Promise<{ id: string; chunkIndex: number; referencedFigures: string[] }[]> {
   const supabase = createAdminSupabaseClient();
 
@@ -359,7 +348,6 @@ export async function getTextChunksWithFigureRefs(
     .from('paper_chunks')
     .select('id, chunk_index, referenced_figures')
     .eq('paper_id', paperId)
-    .eq('collection_id', collectionId)
     .eq('chunk_type', 'text')
     .not('referenced_figures', 'is', null);
 

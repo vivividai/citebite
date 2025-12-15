@@ -71,9 +71,11 @@ async function updatePaperStatus(
 ): Promise<void> {
   const supabase = createAdminSupabaseClient();
 
+  // Type assertion needed until migration is applied and types are regenerated
   const { error } = await supabase
     .from('papers')
-    .update({ vector_status: status })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update({ text_vector_status: status } as any)
     .eq('paper_id', paperId);
 
   if (error) {
@@ -240,7 +242,8 @@ export function startPdfDownloadWorker(): Worker<PdfDownloadJobData> | null {
       const supabase = createAdminSupabaseClient();
       const { error } = await supabase
         .from('papers')
-        .update({ vector_status: 'failed' })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ text_vector_status: 'failed' } as any)
         .eq('paper_id', job.data.paperId);
 
       if (error) {

@@ -12,6 +12,10 @@ import {
   startBulkUploadCleanupWorker,
   stopBulkUploadCleanupWorker,
 } from './bulkUploadCleanupWorker';
+import {
+  startFigureAnalysisWorker,
+  stopFigureAnalysisWorker,
+} from './figureAnalysisWorker';
 import { scheduleRecurringCleanup } from '../queues';
 
 /**
@@ -24,6 +28,7 @@ export async function startAllWorkers(): Promise<void> {
   startPdfDownloadWorker();
   startPdfIndexWorker();
   startBulkUploadCleanupWorker();
+  startFigureAnalysisWorker();
 
   // Schedule recurring cleanup job for bulk upload sessions
   await scheduleRecurringCleanup();
@@ -42,6 +47,7 @@ export async function stopAllWorkers(): Promise<void> {
     stopPdfDownloadWorker(),
     stopPdfIndexWorker(),
     stopBulkUploadCleanupWorker(),
+    stopFigureAnalysisWorker(),
   ]);
 
   console.log('All background workers stopped successfully');

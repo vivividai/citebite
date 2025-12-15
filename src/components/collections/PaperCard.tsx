@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { PaperAbstractModal } from './PaperAbstractModal';
 import { PdfUploadButton } from '@/components/papers/PdfUploadButton';
+import { calculateOverallStatus } from '@/lib/utils/status';
 
 interface PaperCardProps {
   paper: Paper;
@@ -47,8 +48,15 @@ interface PaperCardProps {
   onExpand?: (paperId: string, paperTitle: string, degree: number) => void;
 }
 
-function StatusBadge({ status }: { status: string | null }) {
-  if (status === 'completed') {
+interface StatusBadgeProps {
+  textStatus: string | null;
+  imageStatus: string | null;
+}
+
+function StatusBadge({ textStatus, imageStatus }: StatusBadgeProps) {
+  const overallStatus = calculateOverallStatus(textStatus, imageStatus);
+
+  if (overallStatus === 'completed') {
     return (
       <Badge
         variant="outline"
@@ -60,7 +68,7 @@ function StatusBadge({ status }: { status: string | null }) {
     );
   }
 
-  if (status === 'failed') {
+  if (overallStatus === 'failed') {
     return (
       <Badge
         variant="outline"
@@ -68,6 +76,18 @@ function StatusBadge({ status }: { status: string | null }) {
       >
         <AlertCircle className="h-3 w-3" />
         Failed
+      </Badge>
+    );
+  }
+
+  if (overallStatus === 'processing') {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 bg-yellow-50 text-yellow-700 border-yellow-200"
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Processing
       </Badge>
     );
   }
@@ -146,7 +166,10 @@ export function PaperCard({
               </CardDescription>
             </div>
             <div className="flex-shrink-0">
-              <StatusBadge status={paper.vector_status} />
+              <StatusBadge
+                textStatus={paper.text_vector_status}
+                imageStatus={paper.image_vector_status}
+              />
             </div>
           </div>
         </CardHeader>
@@ -200,7 +223,7 @@ export function PaperCard({
               </Button>
             )}
             {/* Show Upload PDF button for failed papers */}
-            {paper.vector_status === 'failed' && collectionId && (
+            {paper.text_vector_status === 'failed' && collectionId && (
               <div onClick={e => e.stopPropagation()}>
                 <PdfUploadButton
                   paperId={paper.paper_id}

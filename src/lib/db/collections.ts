@@ -134,11 +134,16 @@ export async function getUserCollections(
         // Query papers table directly
         const { data: papers } = await supabase
           .from('papers')
-          .select('vector_status')
+          .select('text_vector_status')
           .in('paper_id', paperIds);
 
-        (papers || []).forEach(p => {
-          if (p.vector_status === 'completed') indexedPapers++;
+        // Type assertion needed until migration is applied and types are regenerated
+        (
+          (papers || []) as unknown as Array<{
+            text_vector_status: string | null;
+          }>
+        ).forEach(p => {
+          if (p.text_vector_status === 'completed') indexedPapers++;
         });
       }
 
@@ -187,16 +192,21 @@ export async function getCollectionById(
     // Query papers table directly for status counts
     const { data: papers, error: papersError } = await supabase
       .from('papers')
-      .select('vector_status')
+      .select('text_vector_status')
       .in('paper_id', paperIds);
 
     if (papersError) {
       console.error(`Failed to get papers: ${papersError.message}`);
     }
 
-    (papers || []).forEach(p => {
-      if (p.vector_status === 'completed') indexedPapers++;
-      else if (p.vector_status === 'failed') failedPapers++;
+    // Type assertion needed until migration is applied and types are regenerated
+    (
+      (papers || []) as unknown as Array<{
+        text_vector_status: string | null;
+      }>
+    ).forEach(p => {
+      if (p.text_vector_status === 'completed') indexedPapers++;
+      else if (p.text_vector_status === 'failed') failedPapers++;
     });
   }
 

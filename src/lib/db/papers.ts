@@ -12,6 +12,8 @@ export function semanticScholarPaperToDbPaper(
 ): PaperInsert {
   const hasOpenAccessPdf = !!paper.openAccessPdf?.url;
 
+  // Type assertion needed until migration is applied and types are regenerated
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     paper_id: paper.paperId,
     title: paper.title,
@@ -23,8 +25,10 @@ export function semanticScholarPaperToDbPaper(
     venue: paper.venue || null,
     open_access_pdf_url: paper.openAccessPdf?.url || null,
     pdf_source: 'auto',
-    vector_status: hasOpenAccessPdf ? 'pending' : 'failed',
-  };
+    text_vector_status: hasOpenAccessPdf ? 'pending' : 'failed',
+    image_vector_status: hasOpenAccessPdf ? 'pending' : 'skipped',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
 }
 
 /**
@@ -111,7 +115,8 @@ export async function getCollectionPapers(
         venue,
         open_access_pdf_url,
         pdf_source,
-        vector_status,
+        text_vector_status,
+        image_vector_status,
         created_at
       )
     `
@@ -123,10 +128,12 @@ export async function getCollectionPapers(
   }
 
   // Transform to return papers with degree from collection_papers
+  // Type assertion needed until migration is applied and types are regenerated
   return data
     .filter(item => item.papers !== null)
     .map(item => ({
-      ...item.papers,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(item.papers as any),
       degree: item.degree ?? 0,
     }));
 }

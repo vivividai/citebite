@@ -24,10 +24,17 @@ export interface BulkUploadCleanupJobData {
   userId?: string;
 }
 
+export interface FigureAnalysisJobData {
+  collectionId: string;
+  paperId: string;
+  storageKey: string;
+}
+
 // Queue instances (singleton pattern)
 let pdfDownloadQueue: Queue<PdfDownloadJobData> | null = null;
 let pdfIndexQueue: Queue<PdfIndexJobData> | null = null;
 let bulkUploadCleanupQueue: Queue<BulkUploadCleanupJobData> | null = null;
+let figureAnalysisQueue: Queue<FigureAnalysisJobData> | null = null;
 
 /**
  * Get or create PDF Download Queue
@@ -150,10 +157,54 @@ export function getBulkUploadCleanupQueue(): Queue<BulkUploadCleanupJobData> | n
 }
 
 /**
+ * Get or create Figure Analysis Queue
+ */
+export function getFigureAnalysisQueue(): Queue<FigureAnalysisJobData> | null {
+  if (!process.env.REDIS_URL) {
+    console.warn('REDIS_URL not configured. Background jobs are disabled.');
+    return null;
+  }
+
+  if (figureAnalysisQueue) {
+    return figureAnalysisQueue;
+  }
+
+  const connection = getRedisClient();
+  if (!connection) {
+    return null;
+  }
+
+  figureAnalysisQueue = new Queue<FigureAnalysisJobData>('figure-analysis', {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000, // Start with 5 second delay (Vision API rate limits)
+      },
+      removeOnComplete: {
+        age: 24 * 3600,
+        count: 1000,
+      },
+      removeOnFail: {
+        age: 7 * 24 * 3600,
+      },
+    },
+  });
+
+  return figureAnalysisQueue;
+}
+
+/**
  * Close all queue connections (use on app shutdown)
  */
 export async function closeQueues(): Promise<void> {
-  const queues = [pdfDownloadQueue, pdfIndexQueue, bulkUploadCleanupQueue];
+  const queues = [
+    pdfDownloadQueue,
+    pdfIndexQueue,
+    bulkUploadCleanupQueue,
+    figureAnalysisQueue,
+  ];
 
   for (const queue of queues) {
     if (queue) {
@@ -164,6 +215,7 @@ export async function closeQueues(): Promise<void> {
   pdfDownloadQueue = null;
   pdfIndexQueue = null;
   bulkUploadCleanupQueue = null;
+  figureAnalysisQueue = null;
 }
 
 /**
@@ -256,5 +308,26 @@ export async function scheduleRecurringCleanup(): Promise<void> {
     console.log('Scheduled recurring bulk upload cleanup job (every hour)');
   } catch (error) {
     console.error('Failed to schedule recurring cleanup:', error);
+  }
+}
+
+/**
+ * Helper function to add a figure analysis job
+ */
+export async function queueFigureAnalysis(
+  data: FigureAnalysisJobData
+): Promise<string | null> {
+  const queue = getFigureAnalysisQueue();
+  if (!queue) {
+    console.error('Figure analysis queue not available');
+    return null;
+  }
+
+  try {
+    const job = await queue.add('analyze-figures', data);
+    return job.id ?? null;
+  } catch (error) {
+    console.error('Failed to queue figure analysis job:', error);
+    return null;
   }
 }

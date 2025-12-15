@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
 import { ExpandCollectionDialog } from './ExpandCollectionDialog';
+import { calculateOverallStatus } from '@/lib/utils/status';
 
 interface PaperListProps {
   collectionId: string;
@@ -73,10 +74,14 @@ export function PaperList({ collectionId }: PaperListProps) {
 
     // First, filter by status
     let result = papers.filter((paper: Paper) => {
-      if (filter === 'indexed') return paper.vector_status === 'completed';
-      if (filter === 'failed') return paper.vector_status === 'failed';
+      const overallStatus = calculateOverallStatus(
+        paper.text_vector_status,
+        paper.image_vector_status
+      );
+      if (filter === 'indexed') return overallStatus === 'completed';
+      if (filter === 'failed') return overallStatus === 'failed';
       if (filter === 'pending')
-        return paper.vector_status === 'pending' || !paper.vector_status;
+        return overallStatus === 'pending' || overallStatus === 'processing';
       return true; // 'all'
     });
 
@@ -110,12 +115,27 @@ export function PaperList({ collectionId }: PaperListProps) {
     if (!papers) return { all: 0, indexed: 0, failed: 0, pending: 0 };
     return {
       all: papers.length,
-      indexed: papers.filter((p: Paper) => p.vector_status === 'completed')
-        .length,
-      failed: papers.filter((p: Paper) => p.vector_status === 'failed').length,
-      pending: papers.filter(
-        (p: Paper) => p.vector_status === 'pending' || !p.vector_status
-      ).length,
+      indexed: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'completed';
+      }).length,
+      failed: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'failed';
+      }).length,
+      pending: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'pending' || status === 'processing';
+      }).length,
     };
   }, [papers]);
 
@@ -270,7 +290,7 @@ export function PaperList({ collectionId }: PaperListProps) {
             <BulkUploadDialog
               collectionId={collectionId}
               papersNeedingPdf={papers
-                .filter((p: Paper) => p.vector_status === 'failed')
+                .filter((p: Paper) => p.text_vector_status === 'failed')
                 .map((p: Paper) => ({ paper_id: p.paper_id, title: p.title }))}
               trigger={
                 <Button variant="secondary" size="sm">

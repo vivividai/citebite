@@ -92,7 +92,7 @@ export async function POST(
           paper_id,
           title,
           open_access_pdf_url,
-          vector_status,
+          text_vector_status,
           storage_path
         )
       `
@@ -114,7 +114,7 @@ export async function POST(
         paper_id: string;
         title: string;
         open_access_pdf_url: string | null;
-        vector_status: string | null;
+        text_vector_status: string | null;
         storage_path: string | null;
       };
     };
@@ -125,7 +125,7 @@ export async function POST(
       title: cp.papers.title,
       doi: extractDoiFromUrl(cp.papers.open_access_pdf_url),
       external_ids: null,
-      vector_status: cp.papers.vector_status,
+      text_vector_status: cp.papers.text_vector_status,
       storage_path: cp.papers.storage_path,
     }));
 

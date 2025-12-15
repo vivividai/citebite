@@ -20,7 +20,7 @@ export interface Paper {
     ArXiv?: string;
     [key: string]: string | undefined;
   } | null;
-  vector_status?: string | null;
+  text_vector_status?: string | null;
   storage_path?: string | null;
 }
 
@@ -141,7 +141,7 @@ function matchByTitle(paperTitle: string, pdfText: string): boolean {
  */
 function getFailedPapers(papers: Paper[]): Paper[] {
   return papers.filter(
-    p => p.vector_status === 'failed' || p.vector_status === 'pending'
+    p => p.text_vector_status === 'failed' || p.text_vector_status === 'pending'
   );
 }
 
@@ -174,7 +174,7 @@ export async function matchPdfsToPapers(
       id: p.paper_id,
       title: p.title.substring(0, 50),
       doi: p.doi,
-      vector_status: p.vector_status,
+      text_vector_status: p.text_vector_status,
       storage_path: p.storage_path,
     }))
   );

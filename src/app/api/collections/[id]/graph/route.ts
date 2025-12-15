@@ -59,7 +59,7 @@ export async function GET(
           year,
           citation_count,
           venue,
-          vector_status,
+          text_vector_status,
           abstract
         )
       `
@@ -76,14 +76,14 @@ export async function GET(
     const paperIds = new Set<string>();
 
     for (const cp of collectionPapers || []) {
-      const paper = cp.papers as {
+      const paper = cp.papers as unknown as {
         paper_id: string;
         title: string;
         authors: PaperAuthor[] | null;
         year: number | null;
         citation_count: number | null;
         venue: string | null;
-        vector_status: string | null;
+        text_vector_status: string | null;
         abstract: string | null;
       } | null;
 
@@ -103,7 +103,7 @@ export async function GET(
         year: paper.year,
         citationCount: paper.citation_count,
         venue: paper.venue,
-        vectorStatus: paper.vector_status as
+        vectorStatus: paper.text_vector_status as
           | 'pending'
           | 'completed'
           | 'failed'

@@ -46,7 +46,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get paper processing status with vector_status
+    // Get paper processing status with text_vector_status and image_vector_status
     // Use FK hint to resolve ambiguity with source_paper_id relationship
     const { data: collectionPapers, error: papersError } = await supabase
       .from('collection_papers')
@@ -54,7 +54,8 @@ export async function GET(
         `
         paper:papers!collection_papers_paper_id_fkey(
           paper_id,
-          vector_status
+          text_vector_status,
+          image_vector_status
         )
       `
       )
@@ -68,21 +69,35 @@ export async function GET(
       );
     }
 
-    // Calculate stats from actual vector_status values
+    // Calculate stats from text_vector_status (primary status for RAG readiness)
     const papers = collectionPapers || [];
     const totalPapers = papers.length;
 
     let indexedPapers = 0;
     let failedPapers = 0;
     let downloadingPapers = 0;
+    let processingPapers = 0;
 
-    papers.forEach((item: { paper: { vector_status: string | null } }) => {
-      const status = item.paper?.vector_status;
-      if (status === 'completed') {
+    // Type assertion needed until migration is applied and types are regenerated
+    (
+      papers as unknown as Array<{
+        paper: {
+          text_vector_status: string | null;
+          image_vector_status: string | null;
+        };
+      }>
+    ).forEach(item => {
+      const textStatus = item.paper?.text_vector_status;
+      // Note: imageStatus is available for future detailed status reporting
+      // const imageStatus = item.paper?.image_vector_status;
+
+      if (textStatus === 'completed') {
         indexedPapers++;
-      } else if (status === 'failed') {
+      } else if (textStatus === 'failed') {
         failedPapers++;
-      } else if (status === 'pending') {
+      } else if (textStatus === 'processing') {
+        processingPapers++;
+      } else if (textStatus === 'pending') {
         downloadingPapers++;
       }
     });
@@ -95,6 +110,7 @@ export async function GET(
         indexedPapers,
         failedPapers,
         downloadingPapers,
+        processingPapers,
         allProcessed,
       },
     });

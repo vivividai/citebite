@@ -338,3 +338,46 @@ export async function getIndexedPaperIds(
   const uniqueIds: string[] = Array.from(new Set(paperIds));
   return uniqueIds;
 }
+
+/**
+ * Get text chunks with figure references for a paper
+ *
+ * Used by the figure analysis worker to provide context during figure analysis.
+ *
+ * @param paperId - Paper ID
+ * @param collectionId - Collection ID
+ * @returns Array of text chunks with figure references
+ */
+export async function getTextChunksWithFigureRefs(
+  paperId: string,
+  collectionId: string
+): Promise<{ id: string; chunkIndex: number; referencedFigures: string[] }[]> {
+  const supabase = createAdminSupabaseClient();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('paper_chunks')
+    .select('id, chunk_index, referenced_figures')
+    .eq('paper_id', paperId)
+    .eq('collection_id', collectionId)
+    .eq('chunk_type', 'text')
+    .not('referenced_figures', 'is', null);
+
+  if (error) {
+    throw new Error(
+      `Failed to get text chunks with figure refs: ${error.message}`
+    );
+  }
+
+  return (data || []).map(
+    (row: {
+      id: string;
+      chunk_index: number;
+      referenced_figures: string[];
+    }) => ({
+      id: row.id,
+      chunkIndex: row.chunk_index,
+      referencedFigures: row.referenced_figures || [],
+    })
+  );
+}

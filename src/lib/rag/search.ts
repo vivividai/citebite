@@ -6,6 +6,7 @@
 
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
 import { generateQueryEmbedding } from './embeddings';
+import { getSignedFigureUrl } from '@/lib/storage/supabaseStorage';
 
 export interface SearchResult {
   chunkId: string;
@@ -130,6 +131,31 @@ export async function hybridSearch(
       combinedScore: row.combined_score,
     })
   );
+
+  // 4. Generate signed URLs for figure images
+  const figureResults = results.filter(
+    r => r.chunkType === 'figure' && r.imageStoragePath
+  );
+
+  if (figureResults.length > 0) {
+    console.log(
+      `[Search] Generating signed URLs for ${figureResults.length} figure(s)...`
+    );
+
+    await Promise.all(
+      figureResults.map(async result => {
+        try {
+          result.imageUrl = await getSignedFigureUrl(result.imageStoragePath!);
+        } catch (error) {
+          console.warn(
+            `[Search] Failed to generate signed URL for ${result.imageStoragePath}:`,
+            error
+          );
+          // Keep imageUrl undefined if signed URL generation fails
+        }
+      })
+    );
+  }
 
   console.log(`[Search] Found ${results.length} results`);
   console.log(

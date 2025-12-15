@@ -104,7 +104,8 @@ export async function POST(
       .from('papers')
       .update({
         pdf_source: 'manual',
-        vector_status: 'pending',
+        text_vector_status: 'pending',
+        image_vector_status: 'pending',
         storage_path: storagePath,
         uploaded_by: user.id,
       })

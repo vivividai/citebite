@@ -22,8 +22,8 @@ services:
   # pdffigures2 for figure detection
   pdffigures2:
     build:
-      context: ./docker/pdffigures2
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: docker/pdffigures2/Dockerfile
     container_name: citebite-pdffigures2
     ports:
       - "8081:8080"

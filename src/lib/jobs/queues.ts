@@ -9,7 +9,9 @@ import { getRedisClient } from '@/lib/redis/client';
 // Job data type definitions
 export interface PdfDownloadJobData {
   paperId: string;
-  pdfUrl: string;
+  pdfUrl?: string; // Semantic Scholar openAccessPdf URL (optional now)
+  arxivId?: string; // ArXiv fallback
+  doi?: string; // Unpaywall fallback
 }
 
 export interface PdfIndexJobData {

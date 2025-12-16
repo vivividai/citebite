@@ -19,14 +19,18 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install ALL dependencies (need TypeScript for build)
+# --ignore-scripts skips husky prepare script
+RUN npm ci --ignore-scripts
 
 # Copy source code
 COPY . .
 
 # Build TypeScript
 RUN npm run build
+
+# Remove dev dependencies after build
+RUN npm prune --production
 
 # Start workers
 CMD ["npm", "run", "workers"]

@@ -13,7 +13,7 @@ import {
 import {
   semanticScholarPaperToDbPaper,
   upsertPapers,
-  getOpenAccessPapers,
+  getDownloadablePapers,
 } from '@/lib/db/papers';
 import { getSemanticScholarClient } from '@/lib/semantic-scholar/client';
 import { queuePdfDownload } from '@/lib/jobs/queues';
@@ -135,16 +135,16 @@ export async function POST(
     }));
     await linkPapersToCollection(supabase, params.id, paperLinkData);
 
-    // 8. Queue PDF download jobs for Open Access papers
-    const openAccessPapers = getOpenAccessPapers(papers);
+    // 8. Queue PDF download jobs for downloadable papers (OA, ArXiv, or DOI)
+    const downloadablePapers = getDownloadablePapers(papers);
     const queuedJobs: (string | null)[] = [];
 
-    for (const paper of openAccessPapers) {
-      if (!paper.openAccessPdf?.url) continue;
-
+    for (const paper of downloadablePapers) {
       const jobId = await queuePdfDownload({
         paperId: paper.paperId,
-        pdfUrl: paper.openAccessPdf.url,
+        pdfUrl: paper.openAccessPdf?.url,
+        arxivId: paper.externalIds?.ArXiv,
+        doi: paper.externalIds?.DOI,
       });
 
       queuedJobs.push(jobId);
@@ -161,7 +161,7 @@ export async function POST(
       success: true,
       data: {
         addedCount: upsertedPaperIds.length,
-        openAccessCount: openAccessPapers.length,
+        downloadableCount: downloadablePapers.length,
         queuedDownloads: successfulJobs,
         message: `Successfully added ${upsertedPaperIds.length} papers to the collection`,
       },

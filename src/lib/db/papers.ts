@@ -11,6 +11,14 @@ export function semanticScholarPaperToDbPaper(
   paper: SemanticScholarPaper
 ): PaperInsert {
   const hasOpenAccessPdf = !!paper.openAccessPdf?.url;
+  const arxivId = paper.externalIds?.ArXiv || null;
+  const doi = paper.externalIds?.DOI || null;
+
+  // Determine if we have any downloadable source:
+  // 1. Semantic Scholar openAccessPdf URL
+  // 2. ArXiv ID (can build PDF URL)
+  // 3. DOI (can query Unpaywall)
+  const hasDownloadableSource = hasOpenAccessPdf || !!arxivId || !!doi;
 
   // Type assertion needed until migration is applied and types are regenerated
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,8 +33,11 @@ export function semanticScholarPaperToDbPaper(
     venue: paper.venue || null,
     open_access_pdf_url: paper.openAccessPdf?.url || null,
     pdf_source: 'auto',
-    text_vector_status: hasOpenAccessPdf ? 'pending' : 'failed',
-    image_vector_status: hasOpenAccessPdf ? 'pending' : 'skipped',
+    // Set to 'pending' if we have any downloadable source (not just OA URL)
+    text_vector_status: hasDownloadableSource ? 'pending' : 'failed',
+    image_vector_status: hasDownloadableSource ? 'pending' : 'skipped',
+    arxiv_id: arxivId,
+    doi: doi,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -92,6 +103,21 @@ export function getOpenAccessPapers(
 }
 
 /**
+ * Get papers that have any downloadable source
+ * Returns papers with OA PDF URL, ArXiv ID, or DOI (for Unpaywall lookup)
+ */
+export function getDownloadablePapers(
+  papers: SemanticScholarPaper[]
+): SemanticScholarPaper[] {
+  return papers.filter(
+    paper =>
+      paper.openAccessPdf?.url ||
+      paper.externalIds?.ArXiv ||
+      paper.externalIds?.DOI
+  );
+}
+
+/**
  * Get papers for a specific collection
  */
 export async function getCollectionPapers(
@@ -117,6 +143,8 @@ export async function getCollectionPapers(
         pdf_source,
         text_vector_status,
         image_vector_status,
+        arxiv_id,
+        doi,
         created_at
       )
     `

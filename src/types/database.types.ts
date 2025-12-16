@@ -331,9 +331,11 @@ export type Database = {
       papers: {
         Row: {
           abstract: string | null;
+          arxiv_id: string | null;
           authors: Json | null;
           citation_count: number | null;
           created_at: string | null;
+          doi: string | null;
           image_vector_status: string | null;
           open_access_pdf_url: string | null;
           paper_id: string;
@@ -347,9 +349,11 @@ export type Database = {
         };
         Insert: {
           abstract?: string | null;
+          arxiv_id?: string | null;
           authors?: Json | null;
           citation_count?: number | null;
           created_at?: string | null;
+          doi?: string | null;
           image_vector_status?: string | null;
           open_access_pdf_url?: string | null;
           paper_id: string;
@@ -363,9 +367,11 @@ export type Database = {
         };
         Update: {
           abstract?: string | null;
+          arxiv_id?: string | null;
           authors?: Json | null;
           citation_count?: number | null;
           created_at?: string | null;
+          doi?: string | null;
           image_vector_status?: string | null;
           open_access_pdf_url?: string | null;
           paper_id?: string;

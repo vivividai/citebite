@@ -1,6 +1,6 @@
 /**
  * PDF Download Worker
- * Downloads PDFs from Semantic Scholar and uploads to Supabase Storage
+ * Downloads PDFs with fallback chain: Semantic Scholar -> ArXiv -> Unpaywall
  *
  * PDFs are stored once per paper (not per collection) to prevent duplicates.
  * If PDF already exists, download is skipped.
@@ -16,6 +16,8 @@ import {
   pdfExists,
 } from '@/lib/storage/supabaseStorage';
 import { createAdminSupabaseClient } from '@/lib/supabase/server';
+import { buildArxivPdfUrl, isValidArxivId } from '@/lib/arxiv';
+import { getPdfUrl as getUnpaywallPdfUrl } from '@/lib/unpaywall';
 
 // Worker instance
 let pdfDownloadWorker: Worker<PdfDownloadJobData> | null = null;
@@ -24,15 +26,36 @@ let pdfDownloadWorker: Worker<PdfDownloadJobData> | null = null;
 const PDF_DOWNLOAD_TIMEOUT = 30000; // 30 seconds
 const MAX_PDF_SIZE = 100 * 1024 * 1024; // 100MB
 
+// Download source types
+type DownloadSource = 'semantic_scholar' | 'arxiv' | 'unpaywall';
+
+interface DownloadResult {
+  success: boolean;
+  paperId: string;
+  source?: DownloadSource;
+  pdfBuffer?: Buffer;
+  error?: string;
+}
+
 /**
- * Download PDF from URL
+ * Download PDF from URL with appropriate headers
  */
-async function downloadPdfFromUrl(url: string): Promise<Buffer> {
-  // Use browser-like headers to avoid bot detection
+async function downloadPdfFromUrl(
+  url: string,
+  source: DownloadSource
+): Promise<Buffer> {
+  // Build referer based on source
+  const referers: Record<DownloadSource, string> = {
+    semantic_scholar: 'https://www.semanticscholar.org/',
+    arxiv: 'https://arxiv.org/',
+    unpaywall: '',
+  };
+
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: PDF_DOWNLOAD_TIMEOUT,
     maxContentLength: MAX_PDF_SIZE,
+    maxRedirects: 5, // Allow redirects for Unpaywall URLs
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -47,13 +70,7 @@ async function downloadPdfFromUrl(url: string): Promise<Buffer> {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1',
-      // Add Referer based on URL domain to appear more legitimate
-      ...(url.includes('semanticscholar.org') && {
-        Referer: 'https://www.semanticscholar.org/',
-      }),
-      ...(url.includes('arxiv.org') && {
-        Referer: 'https://arxiv.org/',
-      }),
+      ...(referers[source] && { Referer: referers[source] }),
     },
   });
 
@@ -65,8 +82,127 @@ async function downloadPdfFromUrl(url: string): Promise<Buffer> {
     );
   }
 
-  // Convert to Buffer
   return Buffer.from(response.data);
+}
+
+/**
+ * Try downloading from Semantic Scholar (primary source)
+ */
+async function trySemanticScholar(pdfUrl?: string): Promise<Buffer | null> {
+  if (!pdfUrl) {
+    return null;
+  }
+
+  try {
+    console.log(`[PDF Download] Trying Semantic Scholar: ${pdfUrl}`);
+    const buffer = await downloadPdfFromUrl(pdfUrl, 'semantic_scholar');
+    console.log(
+      `[PDF Download] Success from Semantic Scholar (${(buffer.length / 1024).toFixed(2)} KB)`
+    );
+    return buffer;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.log(`[PDF Download] Semantic Scholar failed: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Try downloading from ArXiv (fallback 1)
+ */
+async function tryArxiv(arxivId?: string): Promise<Buffer | null> {
+  if (!arxivId || !isValidArxivId(arxivId)) {
+    return null;
+  }
+
+  try {
+    const arxivUrl = buildArxivPdfUrl(arxivId);
+    console.log(`[PDF Download] Trying ArXiv: ${arxivUrl}`);
+    const buffer = await downloadPdfFromUrl(arxivUrl, 'arxiv');
+    console.log(
+      `[PDF Download] Success from ArXiv (${(buffer.length / 1024).toFixed(2)} KB)`
+    );
+    return buffer;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.log(`[PDF Download] ArXiv failed: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Try downloading via Unpaywall (fallback 2)
+ */
+async function tryUnpaywall(doi?: string): Promise<Buffer | null> {
+  if (!doi) {
+    return null;
+  }
+
+  try {
+    console.log(`[PDF Download] Trying Unpaywall for DOI: ${doi}`);
+    const unpaywallUrl = await getUnpaywallPdfUrl(doi);
+
+    if (!unpaywallUrl) {
+      console.log(`[PDF Download] Unpaywall returned no URL for DOI: ${doi}`);
+      return null;
+    }
+
+    console.log(`[PDF Download] Unpaywall URL: ${unpaywallUrl}`);
+    const buffer = await downloadPdfFromUrl(unpaywallUrl, 'unpaywall');
+    console.log(
+      `[PDF Download] Success from Unpaywall (${(buffer.length / 1024).toFixed(2)} KB)`
+    );
+    return buffer;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.log(`[PDF Download] Unpaywall failed: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Download PDF with fallback chain
+ * Order: Semantic Scholar -> ArXiv -> Unpaywall
+ */
+async function downloadWithFallbacks(
+  data: PdfDownloadJobData
+): Promise<DownloadResult> {
+  const { paperId, pdfUrl, arxivId, doi } = data;
+
+  // 1. Try Semantic Scholar (primary)
+  let buffer = await trySemanticScholar(pdfUrl);
+  if (buffer) {
+    return {
+      success: true,
+      paperId,
+      source: 'semantic_scholar',
+      pdfBuffer: buffer,
+    };
+  }
+
+  // 2. Try ArXiv (fallback 1)
+  buffer = await tryArxiv(arxivId);
+  if (buffer) {
+    return { success: true, paperId, source: 'arxiv', pdfBuffer: buffer };
+  }
+
+  // 3. Try Unpaywall (fallback 2)
+  buffer = await tryUnpaywall(doi);
+  if (buffer) {
+    return { success: true, paperId, source: 'unpaywall', pdfBuffer: buffer };
+  }
+
+  // All sources failed
+  const triedSources: string[] = [];
+  if (pdfUrl) triedSources.push('Semantic Scholar');
+  if (arxivId) triedSources.push('ArXiv');
+  if (doi) triedSources.push('Unpaywall');
+
+  return {
+    success: false,
+    paperId,
+    error: `All download sources failed. Tried: ${triedSources.join(', ') || 'none available'}`,
+  };
 }
 
 /**
@@ -98,10 +234,13 @@ async function updatePaperStatus(
  * Process PDF download job
  */
 async function processPdfDownload(job: Job<PdfDownloadJobData>) {
-  const { paperId, pdfUrl } = job.data;
+  const { paperId, pdfUrl, arxivId, doi } = job.data;
 
   console.log(
     `[PDF Download Worker] Processing job ${job.id} for paper ${paperId}`
+  );
+  console.log(
+    `[PDF Download Worker] Sources: pdfUrl=${!!pdfUrl}, arxivId=${arxivId || 'none'}, doi=${doi || 'none'}`
   );
 
   try {
@@ -126,23 +265,41 @@ async function processPdfDownload(job: Job<PdfDownloadJobData>) {
       return { success: true, paperId, skipped: true };
     }
 
-    console.log(`[PDF Download Worker] Downloading from: ${pdfUrl}`);
+    // Try download with fallbacks
+    const result = await downloadWithFallbacks(job.data);
 
-    // Step 1: Download PDF from Semantic Scholar
-    const pdfBuffer = await downloadPdfFromUrl(pdfUrl);
+    if (!result.success || !result.pdfBuffer) {
+      console.error(
+        `[PDF Download Worker] All download sources failed for paper ${paperId}: ${result.error}`
+      );
+
+      // Mark as failed since all sources exhausted
+      try {
+        await updatePaperStatus(paperId, 'failed');
+      } catch (dbError) {
+        console.error(
+          `[PDF Download Worker] Failed to update status to failed:`,
+          dbError
+        );
+      }
+
+      // Throw error to mark job as failed (no retry - we tried all sources)
+      throw new Error(result.error || 'All download sources failed');
+    }
+
     console.log(
-      `[PDF Download Worker] Downloaded PDF (${(pdfBuffer.length / 1024).toFixed(2)} KB)`
+      `[PDF Download Worker] Downloaded from ${result.source} (${(result.pdfBuffer.length / 1024).toFixed(2)} KB)`
     );
 
-    // Step 2: Upload to Supabase Storage
-    const storagePath = await uploadPdf(paperId, pdfBuffer);
+    // Upload to Supabase Storage
+    const storagePath = await uploadPdf(paperId, result.pdfBuffer);
     console.log(`[PDF Download Worker] Uploaded to storage: ${storagePath}`);
 
-    // Step 3: Update database status to 'processing' (ready for indexing)
+    // Update database status to 'processing' (ready for indexing)
     await updatePaperStatus(paperId, 'processing');
     console.log(`[PDF Download Worker] Updated paper status to 'processing'`);
 
-    // Step 4: Queue PDF indexing job
+    // Queue PDF indexing job
     const storageKey = getStoragePath(paperId);
     const indexJobId = await queuePdfIndexing({
       paperId,
@@ -158,58 +315,25 @@ async function processPdfDownload(job: Job<PdfDownloadJobData>) {
     }
 
     console.log(
-      `[PDF Download Worker] Successfully processed job ${job.id} for paper ${paperId}`
+      `[PDF Download Worker] Successfully processed job ${job.id} for paper ${paperId} (source: ${result.source})`
     );
 
-    return { success: true, paperId, storagePath };
+    return { success: true, paperId, storagePath, source: result.source };
   } catch (error) {
-    // Determine if error is retryable
-    const isRetryable = isRetryableError(error);
+    // Check if this is a "all sources failed" error (no retry)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('All download sources failed')) {
+      // Don't retry - we already tried all sources
+      throw error;
+    }
 
+    // For other errors (network issues, etc.), BullMQ will retry
     console.error(
-      `[PDF Download Worker] Failed to process job ${job.id} (retryable: ${isRetryable}):`,
+      `[PDF Download Worker] Failed to process job ${job.id}:`,
       error
     );
-
-    if (!isRetryable) {
-      // Mark as failed immediately for non-retryable errors
-      try {
-        await updatePaperStatus(paperId, 'failed');
-      } catch (dbError) {
-        console.error(
-          `[PDF Download Worker] Failed to update status to failed:`,
-          dbError
-        );
-      }
-    }
-
-    throw error; // BullMQ will handle retries
+    throw error;
   }
-}
-
-/**
- * Determine if an error is retryable
- */
-function isRetryableError(error: unknown): boolean {
-  if (axios.isAxiosError(error)) {
-    const status = error.response?.status;
-
-    // Don't retry on 404 (not found) or 403 (forbidden)
-    if (status === 404 || status === 403) {
-      return false;
-    }
-
-    // Don't retry on 400 (bad request)
-    if (status === 400) {
-      return false;
-    }
-
-    // Retry on network errors, timeouts, and 5xx errors
-    return true;
-  }
-
-  // Retry on unknown errors
-  return true;
 }
 
 /**
@@ -251,7 +375,6 @@ export function startPdfDownloadWorker(): Worker<PdfDownloadJobData> | null {
     console.log(
       `[PDF Download Worker] Job ${job.id} completed for paper ${job.data.paperId}`
     );
-    // Status is already updated to 'processing' in the processPdfDownload function
   });
 
   pdfDownloadWorker.on('failed', async (job, err) => {
@@ -261,7 +384,7 @@ export function startPdfDownloadWorker(): Worker<PdfDownloadJobData> | null {
     }
 
     console.error(
-      `[PDF Download Worker] Job ${job.id} failed after all retries for paper ${job.data.paperId}:`,
+      `[PDF Download Worker] Job ${job.id} failed for paper ${job.data.paperId}:`,
       err
     );
 

@@ -48,7 +48,7 @@ WORKDIR /app
 COPY --from=builder /build/pdffigures2/target/scala-2.12/pdffigures2_2.12-0.1.0.jar /app/pdffigures2.jar
 
 # Copy HTTP server
-COPY docker/pdffigures2/server.py /app/
+COPY server.py /app/
 
 # Create data directory
 RUN mkdir -p /data

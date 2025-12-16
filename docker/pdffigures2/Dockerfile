@@ -49,8 +49,8 @@ WORKDIR /app
 # So the fat JAR is in the project root, not target/scala-2.12/
 COPY --from=builder /build/pdffigures2/pdffigures2.jar /app/pdffigures2.jar
 
-# Copy HTTP server
-COPY server.py /app/
+# Copy HTTP server (path works from repo root context)
+COPY docker/pdffigures2/server.py /app/
 
 # Create data directory
 RUN mkdir -p /data

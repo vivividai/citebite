@@ -54,19 +54,21 @@
 ### 1.6 BullMQ & Redis Setup _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
 
 - [x] Connect to Redis (Upstash or Railway) - configuration ready, actual Redis instance needed
-- [x] Define three queues: `pdf-download`, `pdf-indexing`, `insight-generation`
+- [x] Define two queues: `pdf-download`, `pdf-indexing`
 - [x] Create queue client utilities (`lib/jobs/queues.ts`)
 - [x] Create worker skeleton files (no logic yet)
 - [x] Add job status polling API route
 - [ ] **E2E Test**: Queue a test job and verify it appears in Redis (requires actual Redis instance)
 
-### 1.7 Gemini File Search Integration _(→ [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
+### 1.7 Custom RAG with pgvector _(→ [DATABASE](./planning/DATABASE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
 - [x] Initialize Gemini AI client with API key
-- [x] Implement File Search Store creation function
-- [x] Implement PDF upload to Store function
-- [x] Add error handling for rate limits
-- [x] **E2E Test**: Upload a sample PDF and verify Store creation
+- [x] Enable pgvector extension in Supabase
+- [x] Create paper_chunks table with vector(768) column
+- [x] Implement PDF text extraction and chunking (fixed-size)
+- [x] Implement embedding generation (Gemini text-embedding-004)
+- [x] Create HNSW index for fast similarity search
+- [x] **E2E Test**: Index a sample PDF and verify embeddings stored
 
 ### 1.8 Supabase Storage Setup _(→ [DATABASE](./planning/DATABASE.md))_
 
@@ -82,7 +84,7 @@
 - [x] Validate input with Zod schema (keywords, filters)
 - [x] Search papers via Semantic Scholar
 - [x] Save collection and papers to database
-- [x] Create Gemini File Search Store
+- [x] Create collection record in database
 - [x] Queue PDF download jobs for Open Access papers
 - [x] **E2E Test**: Create collection and verify database entries + jobs queued (tested: validation, auth, API integration)
 
@@ -111,7 +113,9 @@
 ### 2.2 PDF Indexing Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
 
 - [x] Retrieve PDF from Supabase Storage
-- [x] Upload PDF to Gemini File Search Store with metadata
+- [x] Extract text and chunk PDF content (fixed-size chunking)
+- [x] Generate embeddings via Gemini text-embedding-004
+- [x] Store chunks with embeddings in paper_chunks table (pgvector)
 - [x] Update `Paper.vectorStatus` to 'completed'
 - [x] Handle API errors and update status to 'failed'
 - [x] Implement exponential backoff for rate limits
@@ -122,7 +126,7 @@
 - [x] Create /collections/[id] page
 - [x] Display collection header (title, description, stats)
 - [x] Show paper list with status indicators
-- [x] Add tabs: Papers, Chat, Insights
+- [x] Add tabs: Papers, Chat
 - [x] Display processing progress (X/Y papers indexed)
 - [x] **E2E Test**: View collection with mixed paper statuses
 
@@ -158,7 +162,7 @@
 - [x] Create POST /api/conversations/[id]/messages route
 - [x] Validate conversation exists and user has access
 - [x] Save user message to database
-- [x] Query Gemini with File Search tool
+- [x] Query custom RAG (pgvector + Gemini)
 - [x] Extract grounding metadata for citations
 - [x] Validate cited papers exist in collection
 - [x] Save AI response and citations to database
@@ -388,64 +392,11 @@
 - [ ] Show notification after adding papers
 - [ ] **E2E Test**: Complete update flow end-to-end
 
-### 5.4 Insight Regeneration Trigger _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
-
-- [ ] Queue insight generation job after adding papers
-- [ ] Update insights UI when job completes
-- [ ] Show notification: "Insights updated"
-- [ ] **E2E Test**: Verify insights regenerate after update
-
 ---
 
-## Phase 6: Insights Dashboard (1-2 weeks)
+## Phase 6: Public Collections
 
-### 6.1 Insight Generation Logic _(→ [BACKEND](./planning/BACKEND.md), [EXTERNAL_APIS](./planning/EXTERNAL_APIS.md))_
-
-- [ ] Aggregate paper abstracts and metadata
-- [ ] Create Gemini prompt for trend analysis
-- [ ] Define JSON response schema (trends, top papers, gaps)
-- [ ] Parse and validate response
-- [ ] Extract top papers by citation count (Top 5)
-- [ ] **E2E Test**: Generate insights manually and verify output
-
-### 6.2 Insight Generation Worker _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
-
-- [ ] Implement worker in `lib/jobs/workers/insight-generation.ts`
-- [ ] Handle long-running LLM calls (timeout: 60s)
-- [ ] Retry on transient errors (max 2 attempts)
-- [ ] Save to Collection.insightSummary (JSONB field)
-- [ ] Update Collection.lastInsightGeneratedAt
-- [ ] **E2E Test**: Queue job and verify insights saved
-
-### 6.3 Insights Dashboard UI _(→ [FRONTEND](./planning/FRONTEND.md))_
-
-- [ ] Create Insights tab in collection detail
-- [ ] Display main research trends (3-5 cards)
-- [ ] Show top papers list with citations
-- [ ] Display recent trends (last 1 year)
-- [ ] Show research gaps section
-- [ ] Add "Refresh Insights" button
-- [ ] **E2E Test**: View insights dashboard with real data
-
-### 6.4 Suggested Questions from Insights _(→ [FRONTEND](./planning/FRONTEND.md))_
-
-- [ ] Generate 3-5 questions based on trends and gaps
-- [ ] Display in both Insights and Chat tabs
-- [ ] Click to navigate to Chat and auto-fill
-- [ ] **E2E Test**: Click suggested question and verify navigation
-
-### 6.5 Auto-trigger on Collection Creation _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
-
-- [ ] Queue insight job after all PDFs indexed
-- [ ] Poll job status and update UI
-- [ ] Show "Generating insights..." state
-- [ ] **E2E Test**: Create collection and verify insights auto-generate
-
----
-
-## Phase 7: Public Collections (1 week)
-
-### 7.1 Public/Private Toggle _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md), [DATABASE](./planning/DATABASE.md))_
+### 6.1 Public/Private Toggle _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md), [DATABASE](./planning/DATABASE.md))_
 
 - [ ] Add isPublic field UI (toggle switch)
 - [ ] Create PATCH /api/collections/[id] route
@@ -453,7 +404,7 @@
 - [ ] Update RLS policies to allow public read access
 - [ ] **E2E Test**: Toggle collection visibility and verify access
 
-### 7.2 Public Collections Discovery Page _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 6.2 Public Collections Discovery Page _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Create /discover page
 - [ ] Fetch public collections (paginated, 20 per page)
@@ -462,36 +413,34 @@
 - [ ] Add sort options (popular, recent, most papers)
 - [ ] **E2E Test**: Browse public collections and search
 
-### 7.3 Copy Collection API _(→ [BACKEND](./planning/BACKEND.md))_
+### 6.3 Copy Collection API _(→ [BACKEND](./planning/BACKEND.md))_
 
 - [ ] Create POST /api/collections/[id]/copy route
 - [ ] Create new Collection with same metadata
 - [ ] Copy CollectionPaper relations (reference same papers)
-- [ ] Share fileSearchStoreId (no re-indexing)
-- [ ] Copy insightSummary
+- [ ] Copy paper_chunks (share embeddings, no re-indexing)
 - [ ] Increment original Collection.copyCount
 - [ ] **E2E Test**: Copy public collection and verify papers accessible
 
-### 7.4 Collection Statistics _(→ [BACKEND](./planning/BACKEND.md), [DATABASE](./planning/DATABASE.md))_
+### 6.4 Collection Statistics _(→ [BACKEND](./planning/BACKEND.md), [DATABASE](./planning/DATABASE.md))_
 
 - [ ] Add copyCount field to Collection model
 - [ ] Display on public collection cards
 - [ ] Track unique user count (derived from copies + owner)
 - [ ] **E2E Test**: Verify stats update after copy
 
-### 7.5 Public Collection View _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 6.5 Public Collection View _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Allow unauthenticated users to view public collections
 - [ ] Show "Copy to My Collections" button for non-owners
 - [ ] Disable chat for non-owners (show "Copy to chat")
-- [ ] Show read-only insights
 - [ ] **E2E Test**: View public collection without authentication
 
 ---
 
-## Phase 8: Polish & Testing (1 week)
+## Phase 7: Polish & Testing
 
-### 8.1 Progress Indicators _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 7.1 Progress Indicators _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Create real-time status polling hook
 - [ ] Display progress bar for PDF processing (X/Y indexed)
@@ -499,7 +448,7 @@
 - [ ] Add WebSocket alternative if polling is too slow
 - [ ] **E2E Test**: Monitor progress in real-time
 
-### 8.2 Error Handling & Retry _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md))_
+### 7.2 Error Handling & Retry _(→ [FRONTEND](./planning/FRONTEND.md), [BACKEND](./planning/BACKEND.md))_
 
 - [ ] Create user-friendly error message components
 - [ ] Add retry buttons for failed operations
@@ -507,23 +456,22 @@
 - [ ] Show specific error messages (rate limit, timeout, etc.)
 - [ ] **E2E Test**: Trigger errors and verify retry works
 
-### 8.3 Empty States _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 7.3 Empty States _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] "No collections yet" with "Create Collection" CTA
 - [ ] "No papers in collection" (should not happen)
 - [ ] "No conversations yet" with starter questions
-- [ ] "No insights generated yet" with explanation
 - [ ] **E2E Test**: Verify all empty states render correctly
 
-### 8.4 Onboarding Flow _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 7.4 Onboarding Flow _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Create welcome modal (3 slides)
-- [ ] Explain: 1) Create collections, 2) Chat with AI, 3) Get insights
+- [ ] Explain: 1) Create collections, 2) Chat with AI
 - [ ] Add "Create Sample Collection" option
 - [ ] Set onboarding complete flag (User.onboardingCompleted)
 - [ ] **E2E Test**: Complete onboarding and create sample collection
 
-### 8.5 Performance Optimization _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [FRONTEND](./planning/FRONTEND.md))_
+### 7.5 Performance Optimization _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md), [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Add React Query for server state caching
 - [ ] Configure staleTime and cacheTime per query
@@ -532,21 +480,21 @@
 - [ ] Configure Supabase Storage CDN
 - [ ] **E2E Test**: Measure page load times and API response times
 
-### 8.6 Loading States _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 7.6 Loading States _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Add skeleton loaders for all data fetching
 - [ ] Show spinners for button actions
 - [ ] Optimistic UI updates where possible
 - [ ] **E2E Test**: Verify smooth loading experience
 
-### 8.7 Responsive Design (Desktop-first) _(→ [FRONTEND](./planning/FRONTEND.md))_
+### 7.7 Responsive Design (Desktop-first) _(→ [FRONTEND](./planning/FRONTEND.md))_
 
 - [ ] Ensure minimum 1024px width works well
 - [ ] Test on common resolutions (1920x1080, 1440x900)
 - [ ] Add horizontal scroll for narrow screens
 - [ ] **E2E Test**: Test on different screen sizes
 
-### 8.8 E2E Test Suite _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
+### 7.8 E2E Test Suite _(→ [INFRASTRUCTURE](./planning/INFRASTRUCTURE.md))_
 
 - [ ] Write Playwright tests for critical paths:
   - [ ] Authentication flow

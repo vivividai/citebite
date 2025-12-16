@@ -1,7 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, TablesInsert } from '@/types/database.types';
-import { deleteCollectionPdfs } from '@/lib/storage/supabaseStorage';
-import { deleteChunksForCollection } from '@/lib/db/chunks';
+import type { RelationshipType } from '@/types/graph';
 
 type CollectionInsert = TablesInsert<'collections'>;
 
@@ -26,16 +25,40 @@ export async function createCollection(
 }
 
 /**
+ * Paper link data for collection_papers junction table
+ */
+export interface PaperLinkData {
+  paperId: string;
+  sourcePaperId?: string | null;
+  relationshipType?: RelationshipType;
+  similarityScore?: number | null;
+  degree?: number; // 0=search, 1-3=expansion levels
+}
+
+/**
  * Link papers to a collection via collection_papers junction table
+ * @param supabase Supabase client
+ * @param collectionId Collection ID
+ * @param papers Array of paper IDs or paper link data with relationship info
  */
 export async function linkPapersToCollection(
   supabase: SupabaseClient<Database>,
   collectionId: string,
-  paperIds: string[]
+  papers: string[] | PaperLinkData[]
 ) {
-  const collectionPapers = paperIds.map(paperId => ({
+  // Normalize input: convert string[] to PaperLinkData[]
+  const paperDataArray: PaperLinkData[] =
+    typeof papers[0] === 'string'
+      ? (papers as string[]).map(paperId => ({ paperId }))
+      : (papers as PaperLinkData[]);
+
+  const collectionPapers = paperDataArray.map(paper => ({
     collection_id: collectionId,
-    paper_id: paperId,
+    paper_id: paper.paperId,
+    source_paper_id: paper.sourcePaperId ?? null,
+    relationship_type: paper.relationshipType ?? 'search',
+    similarity_score: paper.similarityScore ?? null,
+    degree: paper.degree ?? 0,
   }));
 
   const { error } = await supabase
@@ -83,7 +106,7 @@ export async function getUserCollections(
   const { data: collections, error: collectionsError } = await supabase
     .from('collections')
     .select(
-      'id, name, search_query, filters, created_at, file_search_store_id, use_ai_assistant, natural_language_query'
+      'id, name, search_query, filters, created_at, use_ai_assistant, natural_language_query'
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
@@ -95,40 +118,37 @@ export async function getUserCollections(
   // For each collection, get paper counts
   const collectionsWithCounts = await Promise.all(
     collections.map(async collection => {
-      // Get total papers for this collection
-      const { count: totalPapers, error: totalError } = await supabase
+      // Get paper IDs for this collection
+      const { data: collectionPapers } = await supabase
         .from('collection_papers')
-        .select('*', { count: 'exact', head: true })
+        .select('paper_id')
         .eq('collection_id', collection.id);
 
-      if (totalError) {
-        console.error(
-          `Failed to get total papers for collection ${collection.id}:`,
-          totalError
-        );
-      }
+      const paperIds = (collectionPapers || []).map(cp => cp.paper_id);
+      const totalPapers = paperIds.length;
+      let indexedPapers = 0;
 
-      // Get indexed papers for this collection
-      const { count: indexedPapers, error: indexedError } = await supabase
-        .from('collection_papers')
-        .select('paper_id, papers!inner(vector_status)', {
-          count: 'exact',
-          head: true,
-        })
-        .eq('collection_id', collection.id)
-        .eq('papers.vector_status', 'completed');
+      if (paperIds.length > 0) {
+        // Query papers table directly
+        const { data: papers } = await supabase
+          .from('papers')
+          .select('text_vector_status')
+          .in('paper_id', paperIds);
 
-      if (indexedError) {
-        console.error(
-          `Failed to get indexed papers for collection ${collection.id}:`,
-          indexedError
-        );
+        // Type assertion needed until migration is applied and types are regenerated
+        (
+          (papers || []) as unknown as Array<{
+            text_vector_status: string | null;
+          }>
+        ).forEach(p => {
+          if (p.text_vector_status === 'completed') indexedPapers++;
+        });
       }
 
       return {
         ...collection,
-        totalPapers: totalPapers || 0,
-        indexedPapers: indexedPapers || 0,
+        totalPapers,
+        indexedPapers,
       };
     })
   );
@@ -151,68 +171,60 @@ export async function getCollectionById(
     userId
   );
 
-  // Get total papers for this collection
-  const { count: totalPapers, error: totalError } = await supabase
+  // Get paper IDs for this collection
+  const { data: collectionPapers, error: cpError } = await supabase
     .from('collection_papers')
-    .select('*', { count: 'exact', head: true })
+    .select('paper_id')
     .eq('collection_id', collection.id);
 
-  if (totalError) {
-    console.error(
-      `Failed to get total papers for collection ${collection.id}:`,
-      totalError
-    );
+  if (cpError) {
+    console.error(`Failed to get collection papers: ${cpError.message}`);
   }
 
-  // Get indexed papers for this collection
-  const { count: indexedPapers, error: indexedError } = await supabase
-    .from('collection_papers')
-    .select('paper_id, papers!inner(vector_status)', {
-      count: 'exact',
-      head: true,
-    })
-    .eq('collection_id', collection.id)
-    .eq('papers.vector_status', 'completed');
+  const paperIds = (collectionPapers || []).map(cp => cp.paper_id);
+  const totalPapers = paperIds.length;
+  let indexedPapers = 0;
+  let failedPapers = 0;
 
-  if (indexedError) {
-    console.error(
-      `Failed to get indexed papers for collection ${collection.id}:`,
-      indexedError
-    );
-  }
+  if (paperIds.length > 0) {
+    // Query papers table directly for status counts
+    const { data: papers, error: papersError } = await supabase
+      .from('papers')
+      .select('text_vector_status')
+      .in('paper_id', paperIds);
 
-  // Get failed papers count
-  const { count: failedPapers, error: failedError } = await supabase
-    .from('collection_papers')
-    .select('paper_id, papers!inner(vector_status)', {
-      count: 'exact',
-      head: true,
-    })
-    .eq('collection_id', collection.id)
-    .eq('papers.vector_status', 'failed');
+    if (papersError) {
+      console.error(`Failed to get papers: ${papersError.message}`);
+    }
 
-  if (failedError) {
-    console.error(
-      `Failed to get failed papers for collection ${collection.id}:`,
-      failedError
-    );
+    // Type assertion needed until migration is applied and types are regenerated
+    (
+      (papers || []) as unknown as Array<{
+        text_vector_status: string | null;
+      }>
+    ).forEach(p => {
+      if (p.text_vector_status === 'completed') indexedPapers++;
+      else if (p.text_vector_status === 'failed') failedPapers++;
+    });
   }
 
   return {
     ...collection,
-    totalPapers: totalPapers || 0,
-    indexedPapers: indexedPapers || 0,
-    failedPapers: failedPapers || 0,
+    totalPapers,
+    indexedPapers,
+    failedPapers,
   };
 }
 
 /**
  * Delete a collection by ID with ownership check
- * This will cascade delete all related data:
- * - Vector chunks from pgvector (paper_chunks)
- * - PDFs from Supabase Storage
- * - collection_papers entries
- * - conversations and messages
+ *
+ * This only deletes:
+ * - collection_papers entries (CASCADE)
+ * - conversations and messages (CASCADE)
+ *
+ * Chunks and PDFs are NOT deleted (orphan handling = keep).
+ * They can be reused if the same paper is added to another collection.
  */
 export async function deleteCollection(
   supabase: SupabaseClient<Database>,
@@ -222,33 +234,8 @@ export async function deleteCollection(
   // First verify ownership
   await getCollectionWithOwnership(supabase, collectionId, userId);
 
-  // Delete all vector chunks for this collection
-  try {
-    await deleteChunksForCollection(collectionId);
-    console.log(`Deleted vector chunks for collection ${collectionId}`);
-  } catch (error) {
-    console.error(
-      `Failed to delete chunks for collection ${collectionId}:`,
-      error
-    );
-  }
-
-  // Delete all PDFs from Supabase Storage
-  try {
-    const deletedCount = await deleteCollectionPdfs(collectionId);
-    console.log(
-      `Deleted ${deletedCount} PDF files for collection ${collectionId}`
-    );
-  } catch (error) {
-    // Log error but don't fail the entire deletion
-    // Storage cleanup failure shouldn't prevent collection deletion
-    console.error(
-      `Failed to delete PDFs for collection ${collectionId}:`,
-      error
-    );
-  }
-
-  // Delete the collection (CASCADE will handle related data)
+  // Delete the collection (CASCADE will handle collection_papers, conversations, messages)
+  // Note: Chunks and PDFs are NOT deleted - they may be used by other collections
   const { error } = await supabase
     .from('collections')
     .delete()
@@ -258,4 +245,8 @@ export async function deleteCollection(
   if (error) {
     throw new Error(`Failed to delete collection: ${error.message}`);
   }
+
+  console.log(
+    `Deleted collection ${collectionId} (orphan chunks and PDFs kept)`
+  );
 }

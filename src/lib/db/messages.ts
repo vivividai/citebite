@@ -4,21 +4,32 @@ import { Database, TablesInsert } from '@/types/database.types';
 type MessageInsert = TablesInsert<'messages'>;
 
 /**
- * Grounding chunk from custom RAG or Gemini File Search API
+ * Grounding chunk from custom RAG
  * Contains the actual text that was retrieved and cited
+ * Supports both text chunks and figure chunks (multimodal RAG)
  */
 export interface GroundingChunk {
   retrievedContext?: {
     text: string;
-    /** Paper ID for looking up paper metadata (custom RAG) */
+    /** Paper ID for looking up paper metadata */
     paper_id?: string;
-    /** File search store reference (Gemini File Search - deprecated) */
-    fileSearchStore?: string;
+    /** Chunk type: 'text' (default) or 'figure' */
+    chunk_type?: 'text' | 'figure';
+    /** Figure number (e.g., "Figure 1", "Table 2") - only for figure chunks */
+    figure_number?: string;
+    /** Figure caption from the paper - only for figure chunks */
+    figure_caption?: string;
+    /** Signed URL for figure image - only for figure chunks */
+    image_url?: string;
+    /** Page number where the figure appears - only for figure chunks */
+    page_number?: number;
+    /** Whether this is a related figure (not directly in search results) */
+    is_related?: boolean;
   };
 }
 
 /**
- * Grounding support from Gemini File Search API
+ * Grounding support for RAG responses
  * Maps specific text segments to the chunks that support them
  */
 export interface GroundingSupport {
@@ -33,19 +44,16 @@ export interface GroundingSupport {
 /**
  * Citation metadata structure stored in messages.cited_papers JSONB field
  *
- * For Gemini File Search:
- * - chunks: Array of source text chunks from grounding metadata
+ * For custom RAG:
+ * - chunks: Array of source text chunks from vector search
  * - supports: Mapping of response text segments to chunk indices
- *
- * Legacy format (deprecated):
- * - paperId, title, relevanceScore for individual paper citations
  */
 export interface CitedPaper {
-  // Gemini File Search grounding data
+  // RAG grounding data
   chunks?: GroundingChunk[];
   supports?: GroundingSupport[];
 
-  // Legacy fields (deprecated - Gemini doesn't provide paper IDs)
+  // Optional fields for direct paper references
   paperId?: string;
   title?: string;
   relevanceScore?: number;

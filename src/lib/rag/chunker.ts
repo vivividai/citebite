@@ -2,7 +2,10 @@
  * Text Chunker for Custom RAG
  *
  * Splits extracted PDF text into overlapping fixed-size chunks for embedding.
+ * Supports figure reference extraction for multimodal RAG.
  */
+
+import { extractAllFigureReferences } from '@/lib/pdf/figure-reference-extractor';
 
 export interface ChunkConfig {
   /** Maximum characters per chunk */
@@ -20,15 +23,23 @@ export interface Chunk {
 }
 
 /**
+ * Extended chunk with figure references for multimodal RAG
+ */
+export interface ChunkWithFigureRefs extends Chunk {
+  /** Array of figure numbers referenced in this chunk (e.g., ["Figure 1", "Table 2"]) */
+  referencedFigures: string[];
+}
+
+/**
  * Default chunking configuration (optimized for research papers)
  *
- * - 4096 chars ≈ 1024 tokens (optimal for academic content per NVIDIA research)
- * - 600 char overlap ≈ 150 tokens (15% overlap - best performing in benchmarks)
+ * - 3072 chars ≈ 768 tokens (balanced for precision and context)
+ * - 450 char overlap ≈ 112 tokens (15% overlap - best performing in benchmarks)
  * - 100 char minimum prevents tiny fragments
  */
 export const DEFAULT_CHUNK_CONFIG: ChunkConfig = {
-  maxChars: 4096,
-  overlapChars: 600,
+  maxChars: 3072,
+  overlapChars: 450,
   minChars: 100,
 };
 
@@ -114,4 +125,36 @@ export function estimateTokens(text: string): number {
  */
 export function getTotalTokenCount(chunks: Chunk[]): number {
   return chunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
+}
+
+/**
+ * Chunk text with figure reference extraction for multimodal RAG
+ *
+ * This extends the basic chunking with figure reference parsing.
+ * Each chunk will include an array of normalized figure references found in its content.
+ *
+ * @param text - Full text to chunk
+ * @param config - Chunking configuration (optional)
+ * @returns Array of chunks with content, index, token count, and referenced figures
+ *
+ * @example
+ * ```typescript
+ * const chunks = chunkTextWithFigureRefs(extractedPdfText);
+ * chunks.forEach(chunk => {
+ *   if (chunk.referencedFigures.length > 0) {
+ *     console.log(`Chunk ${chunk.chunkIndex} references: ${chunk.referencedFigures.join(', ')}`);
+ *   }
+ * });
+ * ```
+ */
+export function chunkTextWithFigureRefs(
+  text: string,
+  config: ChunkConfig = DEFAULT_CHUNK_CONFIG
+): ChunkWithFigureRefs[] {
+  const basicChunks = chunkText(text, config);
+
+  return basicChunks.map(chunk => ({
+    ...chunk,
+    referencedFigures: extractAllFigureReferences(chunk.content),
+  }));
 }

@@ -75,7 +75,7 @@ export interface RAGResponse {
 const CUSTOM_RAG_SYSTEM_PROMPT = `You are CiteBite, an AI research assistant specialized in analyzing academic papers.
 
 ## YOUR ROLE
-You help researchers understand and synthesize findings from their paper collection. You will be provided with relevant excerpts from research papers as context.
+You help researchers understand and synthesize findings from their paper collection. You will be provided with relevant excerpts from research papers as context, including both text and figure/table descriptions.
 
 ## CITATION FORMAT (CRITICAL)
 - Use [CITE:N] markers to cite sources (e.g., [CITE:1], [CITE:2])
@@ -237,15 +237,31 @@ export async function queryRAG(
   // [CITE:6] → [CITE:1] if original index 5 maps to groundingChunks[0]
   const answer = renumberCitations(parsedAnswer, indexMap);
 
-  const groundingChunks: GroundingChunk[] = citedIndices.map(idx => ({
-    retrievedContext: {
-      text: chunks[idx]?.content || '',
-      // Store paper_id for frontend to lookup paper details
-      paper_id: chunks[idx]?.paperId || '',
-    },
-  }));
+  // Build grounding chunks from cited indices (unified format for text and figure)
+  const groundingChunks: GroundingChunk[] = citedIndices.map(idx => {
+    const chunk = chunks[idx];
+    // For figure chunks, prefer figureDescription (AI analysis) over content
+    // Content contains short format like "[Figure 1]\nCaption: ..."
+    // figureDescription contains detailed AI-generated analysis
+    const textContent =
+      chunk?.chunkType === 'figure' && chunk?.figureDescription
+        ? chunk.figureDescription
+        : chunk?.content || '';
+    return {
+      retrievedContext: {
+        text: textContent,
+        paper_id: chunk?.paperId || '',
+        // Chunk type info for frontend display
+        chunk_type: chunk?.chunkType,
+        figure_number: chunk?.figureNumber,
+        figure_caption: chunk?.figureCaption,
+        image_url: chunk?.imageUrl,
+        page_number: chunk?.pageNumber,
+      },
+    };
+  });
 
-  // Build grounding supports (map text segments to NEW chunk indices)
+  // Build grounding supports (map text segments to chunk indices)
   const groundingSupports = buildGroundingSupports(answer);
 
   console.log(`[RAG] Generated answer with ${citedIndices.length} citations`);
@@ -258,6 +274,7 @@ export async function queryRAG(
       groundingChunks: groundingChunks.map((c, i) => ({
         index: i,
         paper_id: c.retrievedContext?.paper_id,
+        chunk_type: c.retrievedContext?.chunk_type,
         textPreview: c.retrievedContext?.text?.substring(0, 200) + '...',
       })),
       groundingSupportsCount: groundingSupports.length,
@@ -305,22 +322,38 @@ function removeReferences(content: string): string {
 }
 
 /**
- * Build context string from search results
+ * Build context string from search results (unified format for text and figures)
  *
  * Note: Paper metadata (title, authors, year) is NOT included in context.
  * Frontend can look up paper details via paper_id in groundingChunks.
  * This reduces token usage significantly.
  */
 function buildContext(chunks: SearchResult[]): string {
-  return chunks
-    .map((chunk, idx) => {
-      // Remove paper reference markers to avoid citation confusion
+  const parts: string[] = [];
+
+  chunks.forEach((chunk, idx) => {
+    if (chunk.chunkType === 'figure') {
+      // Figure chunk: include figure number, caption, and description
+      const figureInfo = chunk.figureNumber || 'Figure';
+      const caption = chunk.figureCaption
+        ? `\nCaption: ${chunk.figureCaption}`
+        : '';
+      const description = chunk.figureDescription || chunk.content;
+
+      parts.push(
+        `[${idx + 1}] ${figureInfo} (Paper ID: ${chunk.paperId})${caption}\n${description}`
+      );
+    } else {
+      // Text chunk: clean references and include content
       const cleanedContent = removeReferences(chunk.content);
 
-      return `[${idx + 1}]
-${cleanedContent}`;
-    })
-    .join('\n\n');
+      parts.push(
+        `[${idx + 1}] (Paper ID: ${chunk.paperId})\n${cleanedContent}`
+      );
+    }
+  });
+
+  return parts.join('\n\n');
 }
 
 /**

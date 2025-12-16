@@ -20,7 +20,7 @@ export interface Paper {
     ArXiv?: string;
     [key: string]: string | undefined;
   } | null;
-  vector_status?: string | null;
+  text_vector_status?: string | null;
   storage_path?: string | null;
 }
 
@@ -85,6 +85,14 @@ function matchByDoi(paperDoi: string, pdfText: string): boolean {
 }
 
 /**
+ * Normalize text removing ALL spaces (for aggressive matching)
+ * Handles cases like "mm Wave" vs "mmWave"
+ */
+function normalizeTextNoSpaces(text: string): string {
+  return normalizeText(text).replace(/\s+/g, '');
+}
+
+/**
  * Check if paper's title exists in PDF content
  */
 function matchByTitle(paperTitle: string, pdfText: string): boolean {
@@ -107,6 +115,23 @@ function matchByTitle(paperTitle: string, pdfText: string): boolean {
     }
   }
 
+  // Try matching with all spaces removed (handles "mm Wave" vs "mmWave" cases)
+  const titleNoSpaces = normalizeTextNoSpaces(paperTitle);
+  const textNoSpaces = normalizeTextNoSpaces(pdfText);
+  if (textNoSpaces.includes(titleNoSpaces)) {
+    return true;
+  }
+
+  // Also try partial title with no spaces
+  if (titleWords.length >= 5) {
+    const partialTitleNoSpaces = titleWords
+      .slice(0, Math.min(8, titleWords.length))
+      .join('');
+    if (textNoSpaces.includes(partialTitleNoSpaces)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -116,7 +141,7 @@ function matchByTitle(paperTitle: string, pdfText: string): boolean {
  */
 function getFailedPapers(papers: Paper[]): Paper[] {
   return papers.filter(
-    p => p.vector_status === 'failed' || p.vector_status === 'pending'
+    p => p.text_vector_status === 'failed' || p.text_vector_status === 'pending'
   );
 }
 
@@ -149,7 +174,7 @@ export async function matchPdfsToPapers(
       id: p.paper_id,
       title: p.title.substring(0, 50),
       doi: p.doi,
-      vector_status: p.vector_status,
+      text_vector_status: p.text_vector_status,
       storage_path: p.storage_path,
     }))
   );

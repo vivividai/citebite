@@ -27,24 +27,26 @@ interface CitedTextProps {
 }
 
 /**
- * Parse [CITE:N] markers from text and split into segments
- * Returns array of either plain text or citation references
+ * Segment types for parsed text
  */
-function parseTextWithCitations(
-  text: string
-): Array<
-  { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
-> {
-  const segments: Array<
-    { type: 'text'; content: string } | { type: 'cite'; indices: number[] }
-  > = [];
-  const citeRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]/g;
+type TextSegment =
+  | { type: 'text'; content: string }
+  | { type: 'cite'; indices: number[] };
+
+/**
+ * Parse [CITE:N] markers from text and split into segments
+ * Returns array of text or citation references
+ */
+function parseTextWithCitations(text: string): Array<TextSegment> {
+  const segments: Array<TextSegment> = [];
+  // Regex for [CITE:N] patterns (supports multiple like [CITE:1,2,3])
+  const markerRegex = /\[CITE:(\d+(?:,\s*\d+)*)\]/g;
 
   let lastIndex = 0;
   let match;
 
-  while ((match = citeRegex.exec(text)) !== null) {
-    // Add text before this citation
+  while ((match = markerRegex.exec(text)) !== null) {
+    // Add text before this marker
     if (match.index > lastIndex) {
       segments.push({
         type: 'text',
@@ -107,7 +109,7 @@ function CitationNumber({
 }
 
 /**
- * Context for passing citation click handler through markdown components
+ * Context for passing citation click handlers through markdown components
  */
 interface CitationContextValue {
   chunks: GroundingChunk[];
@@ -131,17 +133,24 @@ function CitedTextNode({ children }: { children: string }) {
         if (segment.type === 'text') {
           return <Fragment key={idx}>{segment.content}</Fragment>;
         }
-        // Filter to valid indices
-        const validIndices = segment.indices.filter(i => i < ctx.chunks.length);
-        if (validIndices.length === 0) return null;
 
-        return (
-          <CitationNumber
-            key={idx}
-            indices={validIndices}
-            onCitationClick={ctx.onCitationClick}
-          />
-        );
+        if (segment.type === 'cite') {
+          // Filter to valid indices
+          const validIndices = segment.indices.filter(
+            i => i < ctx.chunks.length
+          );
+          if (validIndices.length === 0) return null;
+
+          return (
+            <CitationNumber
+              key={idx}
+              indices={validIndices}
+              onCitationClick={ctx.onCitationClick}
+            />
+          );
+        }
+
+        return null;
       })}
     </>
   );
@@ -288,8 +297,9 @@ function createMarkdownComponents(): Components {
 /**
  * CitedText component renders markdown with clickable citation markers
  *
- * Parses [CITE:N] markers in the text and renders them as clickable numbers
- * that open a dialog showing the source content.
+ * Parses [CITE:N] markers in the text and renders them as clickable
+ * buttons that open SourceDetailDialog showing the source content.
+ * Works for both text and figure chunks - the dialog handles display.
  */
 export function CitedText({
   content,
@@ -297,6 +307,7 @@ export function CitedText({
   paperMap,
   collectionId,
 }: CitedTextProps) {
+  // State for source dialog
   const [selectedChunk, setSelectedChunk] = useState<GroundingChunk | null>(
     null
   );
@@ -337,7 +348,7 @@ export function CitedText({
         </ReactMarkdown>
       </CitationContext.Provider>
 
-      {/* Source Detail Dialog */}
+      {/* Source Detail Dialog (handles both text and figure chunks) */}
       <SourceDetailDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}

@@ -44,7 +44,7 @@ export async function POST(
     // 3. Verify collection ownership
     const { data: collection, error: collectionError } = await supabase
       .from('collections')
-      .select('id, file_search_store_id')
+      .select('id')
       .eq('id', collectionId)
       .eq('user_id', user.id)
       .single();
@@ -97,14 +97,15 @@ export async function POST(
 
     // 8. Upload to Supabase Storage
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = await uploadPdf(collectionId, paperId, buffer);
+    const storagePath = await uploadPdf(paperId, buffer);
 
     // 9. Update paper record in database
     const { error: updateError } = await supabase
       .from('papers')
       .update({
         pdf_source: 'manual',
-        vector_status: 'pending',
+        text_vector_status: 'pending',
+        image_vector_status: 'pending',
         storage_path: storagePath,
         uploaded_by: user.id,
       })
@@ -120,7 +121,6 @@ export async function POST(
 
     // 10. Queue PDF indexing job
     const jobId = await queuePdfIndexing({
-      collectionId,
       paperId,
       storageKey: storagePath,
     });

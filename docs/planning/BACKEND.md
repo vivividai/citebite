@@ -9,7 +9,7 @@
 ## 관련 문서
 
 - **[전체 아키텍처](./OVERVIEW.md)** - 시스템 개요 및 데이터 흐름
-- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar, Gemini File Search API
+- **[외부 API 가이드](./EXTERNAL_APIS.md)** - Semantic Scholar API
 - **[프론트엔드 스택](./FRONTEND.md)** - Next.js, React, UI 라이브러리
 - **[데이터베이스 설계](./DATABASE.md)** - PostgreSQL, Supabase CLI, SQL migrations, Supabase Storage
 - **[인프라 및 운영](./INFRASTRUCTURE.md)** - 배포, 백그라운드 작업, 보안

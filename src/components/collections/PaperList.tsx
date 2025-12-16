@@ -1,10 +1,13 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCollectionPapers, Paper } from '@/hooks/useCollectionPapers';
+import { useBatchRemovePapers } from '@/hooks/useBatchRemovePapers';
 import { PaperCard } from './PaperCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -12,14 +15,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Loader2,
   FileText,
   AlertCircle,
   ArrowUpDown,
   Upload,
+  Pencil,
+  X,
+  Trash2,
+  RefreshCw,
+  Search,
 } from 'lucide-react';
 import { BulkUploadDialog } from '@/components/papers/BulkUploadDialog';
+import { ExpandCollectionDialog } from './ExpandCollectionDialog';
+import { calculateOverallStatus } from '@/lib/utils/status';
 
 interface PaperListProps {
   collectionId: string;
@@ -30,10 +51,26 @@ type SortType = 'citations' | 'year' | 'relevance';
 
 export function PaperList({ collectionId }: PaperListProps) {
   const { data: papers, isLoading, error } = useCollectionPapers(collectionId);
+  const batchRemove = useBatchRemovePapers();
+  const queryClient = useQueryClient();
+
   const [filter, setFilter] = useState<FilterType>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<SortType>('citations');
-  const [yearFrom, setYearFrom] = useState<string>('');
-  const [yearTo, setYearTo] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Selection mode state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+
+  // Expand dialog state
+  const [expandDialogOpen, setExpandDialogOpen] = useState(false);
+  const [expandPaperId, setExpandPaperId] = useState<string | null>(null);
+  const [expandPaperTitle, setExpandPaperTitle] = useState<string>('');
+  const [expandPaperDegree, setExpandPaperDegree] = useState<number>(0);
 
   // All hooks must be called before any conditional returns
   // Filter and sort papers
@@ -42,25 +79,23 @@ export function PaperList({ collectionId }: PaperListProps) {
 
     // First, filter by status
     let result = papers.filter((paper: Paper) => {
-      if (filter === 'indexed') return paper.vector_status === 'completed';
-      if (filter === 'failed') return paper.vector_status === 'failed';
+      const overallStatus = calculateOverallStatus(
+        paper.text_vector_status,
+        paper.image_vector_status
+      );
+      if (filter === 'indexed') return overallStatus === 'completed';
+      if (filter === 'failed') return overallStatus === 'failed';
       if (filter === 'pending')
-        return paper.vector_status === 'pending' || !paper.vector_status;
+        return overallStatus === 'pending' || overallStatus === 'processing';
       return true; // 'all'
     });
 
-    // Then, filter by year range
-    if (yearFrom) {
-      const fromYear = parseInt(yearFrom, 10);
-      if (!isNaN(fromYear)) {
-        result = result.filter(paper => paper.year && paper.year >= fromYear);
-      }
-    }
-    if (yearTo) {
-      const toYear = parseInt(yearTo, 10);
-      if (!isNaN(toYear)) {
-        result = result.filter(paper => paper.year && paper.year <= toYear);
-      }
+    // Then, filter by search query (title search)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(paper =>
+        paper.title.toLowerCase().includes(query)
+      );
     }
 
     // Finally, sort
@@ -73,20 +108,116 @@ export function PaperList({ collectionId }: PaperListProps) {
     // 'relevance' keeps the original order from API
 
     return sorted;
-  }, [papers, filter, yearFrom, yearTo, sortBy]);
+  }, [papers, filter, searchQuery, sortBy]);
 
   const counts = useMemo(() => {
     if (!papers) return { all: 0, indexed: 0, failed: 0, pending: 0 };
     return {
       all: papers.length,
-      indexed: papers.filter((p: Paper) => p.vector_status === 'completed')
-        .length,
-      failed: papers.filter((p: Paper) => p.vector_status === 'failed').length,
-      pending: papers.filter(
-        (p: Paper) => p.vector_status === 'pending' || !p.vector_status
-      ).length,
+      indexed: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'completed';
+      }).length,
+      failed: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'failed';
+      }).length,
+      pending: papers.filter((p: Paper) => {
+        const status = calculateOverallStatus(
+          p.text_vector_status,
+          p.image_vector_status
+        );
+        return status === 'pending' || status === 'processing';
+      }).length,
     };
   }, [papers]);
+
+  // Selection handlers
+  const handleToggleSelectionMode = () => {
+    if (selectionMode) {
+      // Exiting selection mode - clear selections
+      setSelectedPaperIds(new Set());
+    }
+    setSelectionMode(!selectionMode);
+  };
+
+  const handleSelectPaper = (paperId: string) => {
+    setSelectedPaperIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(paperId)) {
+        newSet.delete(paperId);
+      } else {
+        newSet.add(paperId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const allVisibleIds = filteredAndSortedPapers.map(p => p.paper_id);
+    const allSelected = allVisibleIds.every(id => selectedPaperIds.has(id));
+
+    if (allSelected) {
+      // Deselect all visible papers
+      setSelectedPaperIds(prev => {
+        const newSet = new Set(prev);
+        allVisibleIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    } else {
+      // Select all visible papers
+      setSelectedPaperIds(prev => {
+        const newSet = new Set(prev);
+        allVisibleIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    }
+  };
+
+  const handleBatchDelete = () => {
+    const paperIds = Array.from(selectedPaperIds);
+    batchRemove.mutate(
+      { collectionId, paperIds },
+      {
+        onSuccess: () => {
+          setBatchDeleteDialogOpen(false);
+          setSelectedPaperIds(new Set());
+          setSelectionMode(false);
+        },
+      }
+    );
+  };
+
+  const allVisibleSelected =
+    filteredAndSortedPapers.length > 0 &&
+    filteredAndSortedPapers.every(p => selectedPaperIds.has(p.paper_id));
+
+  // Handle expand button click
+  const handleExpand = (
+    paperId: string,
+    paperTitle: string,
+    degree: number
+  ) => {
+    setExpandPaperId(paperId);
+    setExpandPaperTitle(paperTitle);
+    setExpandPaperDegree(degree);
+    setExpandDialogOpen(true);
+  };
+
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({
+      queryKey: ['collections', collectionId, 'papers'],
+    });
+    setIsRefreshing(false);
+  };
 
   // Now conditional returns are safe
   if (isLoading) {
@@ -126,48 +257,51 @@ export function PaperList({ collectionId }: PaperListProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Filters and Controls */}
-      <div className="space-y-4">
-        {/* Status Filter Buttons */}
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            variant={filter === 'all' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('all')}
+    <div className="flex flex-col h-full">
+      {/* Sticky Filters and Controls */}
+      <div className="sticky top-0 z-10 bg-background pb-4 space-y-4">
+        {/* Status Filter Toggle and Action Buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <ToggleGroup
+            type="single"
+            value={filter}
+            onValueChange={value => value && setFilter(value as FilterType)}
+            className="bg-muted rounded-md p-0.5"
           >
-            All ({counts.all})
-          </Button>
-          <Button
-            variant={filter === 'indexed' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('indexed')}
-          >
-            Indexed ({counts.indexed})
-          </Button>
-          <Button
-            variant={filter === 'pending' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('pending')}
-          >
-            Pending ({counts.pending})
-          </Button>
-          {counts.failed > 0 && (
-            <Button
-              variant={filter === 'failed' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter('failed')}
+            <ToggleGroupItem
+              value="all"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
             >
-              Failed ({counts.failed})
-            </Button>
-          )}
+              All ({counts.all})
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="indexed"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+            >
+              Indexed ({counts.indexed})
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="pending"
+              className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+            >
+              Pending ({counts.pending})
+            </ToggleGroupItem>
+            {counts.failed > 0 && (
+              <ToggleGroupItem
+                value="failed"
+                className="data-[state=on]:bg-background data-[state=on]:shadow-sm h-8 px-2.5 text-xs rounded-sm"
+              >
+                Failed ({counts.failed})
+              </ToggleGroupItem>
+            )}
+          </ToggleGroup>
 
-          {/* Bulk Upload Button - shown when papers need PDFs */}
-          {counts.failed > 0 && (
+          {/* Bulk Upload Button - shown only when Failed filter is selected */}
+          {filter === 'failed' && counts.failed > 0 && (
             <BulkUploadDialog
               collectionId={collectionId}
               papersNeedingPdf={papers
-                .filter((p: Paper) => p.vector_status === 'failed')
+                .filter((p: Paper) => p.text_vector_status === 'failed')
                 .map((p: Paper) => ({ paper_id: p.paper_id, title: p.title }))}
               trigger={
                 <Button variant="secondary" size="sm">
@@ -177,75 +311,197 @@ export function PaperList({ collectionId }: PaperListProps) {
               }
             />
           )}
+
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="ml-auto"
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`}
+            />
+            Refresh
+          </Button>
+
+          {/* Edit/Selection Mode Toggle */}
+          <Button
+            variant={selectionMode ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={handleToggleSelectionMode}
+          >
+            {selectionMode ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
+              </>
+            )}
+          </Button>
         </div>
 
-        {/* Year Range and Sort Controls */}
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Year Range Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Year:</span>
+        {/* Selection Mode Controls */}
+        {selectionMode && (
+          <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={allVisibleSelected}
+                onCheckedChange={handleSelectAll}
+                id="select-all"
+              />
+              <label
+                htmlFor="select-all"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Select all
+              </label>
+            </div>
+            <span className="text-sm text-muted-foreground">
+              {selectedPaperIds.size} selected
+            </span>
+            {selectedPaperIds.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBatchDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Remove Selected
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Search and Sort Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search Input */}
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              type="number"
-              placeholder="From"
-              value={yearFrom}
-              onChange={e => setYearFrom(e.target.value)}
-              className="w-24 h-9"
-              min="1900"
-              max="2100"
-            />
-            <span className="text-sm text-muted-foreground">-</span>
-            <Input
-              type="number"
-              placeholder="To"
-              value={yearTo}
-              onChange={e => setYearTo(e.target.value)}
-              className="w-24 h-9"
-              min="1900"
-              max="2100"
+              type="text"
+              placeholder="Search papers..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-8 h-8 text-xs"
             />
           </div>
 
           {/* Sort Dropdown */}
           <div className="flex items-center gap-2">
-            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
             <Select
               value={sortBy}
               onValueChange={value => setSortBy(value as SortType)}
             >
-              <SelectTrigger className="w-[160px] h-9">
+              <SelectTrigger className="w-[130px] h-8 text-xs">
                 <SelectValue placeholder="Sort by..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="citations">Citations</SelectItem>
-                <SelectItem value="year">Year</SelectItem>
-                <SelectItem value="relevance">Relevance</SelectItem>
+                <SelectItem value="citations" className="text-xs">
+                  Citations
+                </SelectItem>
+                <SelectItem value="year" className="text-xs">
+                  Year
+                </SelectItem>
+                <SelectItem value="relevance" className="text-xs">
+                  Relevance
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Results Count */}
-          <div className="ml-auto text-sm text-muted-foreground">
+          <div className="ml-auto text-xs text-muted-foreground">
             {filteredAndSortedPapers.length} paper
             {filteredAndSortedPapers.length !== 1 ? 's' : ''}
           </div>
         </div>
       </div>
 
-      {/* Paper Grid */}
-      {filteredAndSortedPapers.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          No papers match the selected filters.
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {filteredAndSortedPapers.map((paper: Paper) => (
-            <PaperCard
-              key={paper.paper_id}
-              paper={paper}
-              collectionId={collectionId}
-            />
-          ))}
-        </div>
+      {/* Paper Grid - Scrollable area */}
+      <div className="flex-1 overflow-auto">
+        {filteredAndSortedPapers.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No papers match the selected filters.
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {filteredAndSortedPapers.map((paper: Paper) => (
+              <PaperCard
+                key={paper.paper_id}
+                paper={paper}
+                collectionId={collectionId}
+                selectionMode={selectionMode}
+                isSelected={selectedPaperIds.has(paper.paper_id)}
+                onSelect={handleSelectPaper}
+                onExpand={handleExpand}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog
+        open={batchDeleteDialogOpen}
+        onOpenChange={setBatchDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {selectedPaperIds.size} papers?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  This will remove the selected papers from this collection.
+                </p>
+                <p className="text-sm">
+                  For each paper, the following will be deleted:
+                </p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li>Vector embeddings (search index)</li>
+                  <li>PDF file from storage</li>
+                </ul>
+                <p className="text-sm text-muted-foreground">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchRemove.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchDelete}
+              disabled={batchRemove.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {batchRemove.isPending
+                ? 'Removing...'
+                : `Remove ${selectedPaperIds.size} papers`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Expand Collection Dialog */}
+      {expandPaperId && (
+        <ExpandCollectionDialog
+          open={expandDialogOpen}
+          onOpenChange={setExpandDialogOpen}
+          collectionId={collectionId}
+          paperId={expandPaperId}
+          paperTitle={expandPaperTitle}
+          sourceDegree={expandPaperDegree}
+        />
       )}
     </div>
   );

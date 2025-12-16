@@ -10,6 +10,10 @@ type PaperInsert = TablesInsert<'papers'>;
 export function semanticScholarPaperToDbPaper(
   paper: SemanticScholarPaper
 ): PaperInsert {
+  const hasOpenAccessPdf = !!paper.openAccessPdf?.url;
+
+  // Type assertion needed until migration is applied and types are regenerated
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     paper_id: paper.paperId,
     title: paper.title,
@@ -21,8 +25,10 @@ export function semanticScholarPaperToDbPaper(
     venue: paper.venue || null,
     open_access_pdf_url: paper.openAccessPdf?.url || null,
     pdf_source: 'auto',
-    vector_status: 'pending',
-  };
+    text_vector_status: hasOpenAccessPdf ? 'pending' : 'failed',
+    image_vector_status: hasOpenAccessPdf ? 'pending' : 'skipped',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
 }
 
 /**
@@ -92,12 +98,14 @@ export async function getCollectionPapers(
   supabase: SupabaseClient<Database>,
   collectionId: string
 ) {
+  // Use FK hint to resolve ambiguity with source_paper_id relationship
   const { data, error } = await supabase
     .from('collection_papers')
     .select(
       `
       paper_id,
-      papers (
+      degree,
+      papers!collection_papers_paper_id_fkey (
         paper_id,
         title,
         authors,
@@ -107,7 +115,8 @@ export async function getCollectionPapers(
         venue,
         open_access_pdf_url,
         pdf_source,
-        vector_status,
+        text_vector_status,
+        image_vector_status,
         created_at
       )
     `
@@ -118,6 +127,13 @@ export async function getCollectionPapers(
     throw new Error(`Failed to fetch collection papers: ${error.message}`);
   }
 
-  // Transform to return just the papers (not the junction table data)
-  return data.map(item => item.papers).filter(paper => paper !== null);
+  // Transform to return papers with degree from collection_papers
+  // Type assertion needed until migration is applied and types are regenerated
+  return data
+    .filter(item => item.papers !== null)
+    .map(item => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(item.papers as any),
+      degree: item.degree ?? 0,
+    }));
 }

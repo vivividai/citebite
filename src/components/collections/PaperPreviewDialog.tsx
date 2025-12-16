@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { PaperPreviewCard } from './PaperPreviewCard';
 import { Loader2, Lock, Unlock, CheckCircle, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,12 @@ interface PreviewStats {
   rerankingApplied: boolean;
 }
 
+interface DegreeStats {
+  degree1: number;
+  degree2: number;
+  degree3: number;
+}
+
 interface PaperPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,6 +41,12 @@ interface PaperPreviewDialogProps {
   isCreating: boolean;
   onConfirm: (selectedPaperIds: string[]) => void;
   onCancel: () => void;
+  /** Custom button text for confirm button (default: "컬렉션 생성 (N개)") */
+  confirmButtonText?: string;
+  /** Enable degree filter tabs for auto-expand */
+  showDegreeFilter?: boolean;
+  /** Stats for filter badge counts */
+  degreeStats?: DegreeStats;
 }
 
 /**
@@ -48,6 +61,9 @@ export function PaperPreviewDialog({
   isCreating,
   onConfirm,
   onCancel,
+  confirmButtonText,
+  showDegreeFilter,
+  degreeStats,
 }: PaperPreviewDialogProps) {
   // Threshold state (0-100)
   const [threshold, setThreshold] = useState(50);
@@ -55,18 +71,35 @@ export function PaperPreviewDialog({
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(
     new Set()
   );
+  // Degree filter state
+  const [degreeFilter, setDegreeFilter] = useState<'all' | 1 | 2 | 3>('all');
+  // Open Access only filter
+  const [openAccessOnly, setOpenAccessOnly] = useState(false);
 
   // Check if any papers have embeddings (for showing/hiding threshold slider)
   const hasEmbeddings = papers.some(p => p.hasEmbedding);
 
+  // Filter papers by degree and open access
+  const filteredPapers = useMemo(() => {
+    let result = papers;
+    if (degreeFilter !== 'all') {
+      result = result.filter(p => p.degree === degreeFilter);
+    }
+    if (openAccessOnly) {
+      result = result.filter(p => p.isOpenAccess);
+    }
+    return result;
+  }, [papers, degreeFilter, openAccessOnly]);
+
   // Calculate papers above threshold
   const papersAboveThreshold = useMemo(() => {
-    if (!hasEmbeddings) return papers;
-    return papers.filter(p => {
-      if (p.similarity === null) return true; // Papers without embedding are included by default
+    if (!hasEmbeddings) return filteredPapers;
+    return filteredPapers.filter(p => {
+      // Papers without embedding are NOT selected by default (user must click to select)
+      if (p.similarity === null) return false;
       return p.similarity * 100 >= threshold;
     });
-  }, [papers, threshold, hasEmbeddings]);
+  }, [filteredPapers, threshold, hasEmbeddings]);
 
   // Initialize selection when papers change or threshold changes
   useEffect(() => {
@@ -171,6 +204,59 @@ export function PaperPreviewDialog({
             </div>
           )}
 
+          {/* Degree Filter Tabs (for auto-expand) */}
+          {showDegreeFilter && degreeStats && (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={degreeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDegreeFilter('all')}
+              >
+                All ({papers.length})
+              </Button>
+              {degreeStats.degree1 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 1 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(1)}
+                  className={cn(
+                    degreeFilter !== 1 && 'border-green-500/50 text-green-600'
+                  )}
+                >
+                  Degree 1 ({degreeStats.degree1})
+                </Button>
+              )}
+              {degreeStats.degree2 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 2 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(2)}
+                  className={cn(
+                    degreeFilter !== 2 && 'border-blue-500/50 text-blue-600'
+                  )}
+                >
+                  Degree 2 ({degreeStats.degree2})
+                </Button>
+              )}
+              {degreeStats.degree3 > 0 && (
+                <Button
+                  type="button"
+                  variant={degreeFilter === 3 ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDegreeFilter(3)}
+                  className={cn(
+                    degreeFilter !== 3 && 'border-purple-500/50 text-purple-600'
+                  )}
+                >
+                  Degree 3 ({degreeStats.degree3})
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Selection controls */}
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
@@ -197,9 +283,21 @@ export function PaperPreviewDialog({
             </div>
           </div>
 
+          {/* Open Access Only Filter */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="openAccessOnly"
+              checked={openAccessOnly}
+              onCheckedChange={(checked: boolean) => setOpenAccessOnly(checked)}
+            />
+            <Label htmlFor="openAccessOnly" className="font-normal text-sm">
+              Open Access 논문만 표시 ({stats.openAccessPapers}개)
+            </Label>
+          </div>
+
           {/* Paper list */}
           <div className="flex-1 overflow-y-auto space-y-2 pr-2 max-h-[350px]">
-            {papers.map(paper => (
+            {filteredPapers.map(paper => (
               <PaperPreviewCard
                 key={paper.paperId}
                 paper={paper}
@@ -280,10 +378,10 @@ export function PaperPreviewDialog({
             {isCreating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                생성 중...
+                처리 중...
               </>
             ) : (
-              `컬렉션 생성 (${selectedPaperIds.size}개)`
+              confirmButtonText || `컬렉션 생성 (${selectedPaperIds.size}개)`
             )}
           </Button>
         </DialogFooter>

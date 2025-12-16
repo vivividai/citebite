@@ -6,10 +6,18 @@
  */
 
 export {
+  // PDF functions
   uploadPdf,
   getPdfUrl,
   downloadPdf,
   deletePdf,
   pdfExists,
   getStoragePath,
+  // Figure functions (Multimodal RAG)
+  uploadFigureImage,
+  getFigurePublicUrl,
+  getSignedFigureUrl,
+  deleteFigureImage,
+  deletePaperFigures,
+  getFigureStoragePath,
 } from './supabaseStorage';

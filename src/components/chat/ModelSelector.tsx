@@ -13,7 +13,7 @@ import {
 
 export type GeminiModel =
   | 'gemini-2.5-flash'
-  | 'gemini-2.5-pro-preview-05-06'
+  | 'gemini-2.5-pro'
   | 'gemini-3-pro-preview';
 
 interface ModelOption {
@@ -30,11 +30,11 @@ const MODEL_OPTIONS: ModelOption[] = [
   },
   {
     id: 'gemini-3-pro-preview',
-    name: '사고 모드(3 Pro 사용)',
+    name: '사고 모드',
     description: '복잡한 주제 사고 모드',
   },
   {
-    id: 'gemini-2.5-pro-preview-05-06',
+    id: 'gemini-2.5-pro',
     name: '2.5 Pro',
     description: '정교한 답변',
   },

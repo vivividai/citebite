@@ -10,10 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   queuePdfDownload,
   queuePdfIndexing,
-  queueInsightGeneration,
   getPdfDownloadQueue,
   getPdfIndexQueue,
-  getInsightQueue,
 } from '@/lib/jobs/queues';
 
 export async function POST(request: NextRequest) {
@@ -28,7 +26,6 @@ export async function POST(request: NextRequest) {
     switch (queueType) {
       case 'pdf-download':
         jobId = await queuePdfDownload({
-          collectionId: 'test-collection-123',
           paperId: 'test-paper-456',
           pdfUrl: 'https://example.com/test.pdf',
         });
@@ -37,25 +34,16 @@ export async function POST(request: NextRequest) {
 
       case 'pdf-indexing':
         jobId = await queuePdfIndexing({
-          collectionId: 'test-collection-123',
           paperId: 'test-paper-456',
           storageKey: 'test-storage-key',
         });
         queueName = 'pdf-indexing';
         break;
 
-      case 'insight-generation':
-        jobId = await queueInsightGeneration({
-          collectionId: 'test-collection-123',
-        });
-        queueName = 'insight-generation';
-        break;
-
       default:
         return NextResponse.json(
           {
-            error:
-              'Invalid queue type. Use: pdf-download, pdf-indexing, or insight-generation',
+            error: 'Invalid queue type. Use: pdf-download or pdf-indexing',
           },
           { status: 400 }
         );
@@ -92,9 +80,8 @@ export async function GET() {
   try {
     const pdfDownloadQueue = getPdfDownloadQueue();
     const pdfIndexQueue = getPdfIndexQueue();
-    const insightQueue = getInsightQueue();
 
-    if (!pdfDownloadQueue || !pdfIndexQueue || !insightQueue) {
+    if (!pdfDownloadQueue || !pdfIndexQueue) {
       return NextResponse.json(
         { error: 'Queues not initialized. Check Redis connection.' },
         { status: 500 }
@@ -102,19 +89,16 @@ export async function GET() {
     }
 
     // Get queue counts
-    const [pdfDownloadCounts, pdfIndexCounts, insightCounts] =
-      await Promise.all([
-        pdfDownloadQueue.getJobCounts(),
-        pdfIndexQueue.getJobCounts(),
-        insightQueue.getJobCounts(),
-      ]);
+    const [pdfDownloadCounts, pdfIndexCounts] = await Promise.all([
+      pdfDownloadQueue.getJobCounts(),
+      pdfIndexQueue.getJobCounts(),
+    ]);
 
     return NextResponse.json({
       success: true,
       queues: {
         'pdf-download': pdfDownloadCounts,
         'pdf-indexing': pdfIndexCounts,
-        'insight-generation': insightCounts,
       },
     });
   } catch (error) {

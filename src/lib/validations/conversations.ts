@@ -19,7 +19,7 @@ export type CreateConversationInput = z.infer<typeof createConversationSchema>;
  */
 export const GEMINI_MODELS = [
   'gemini-2.5-flash',
-  'gemini-2.5-pro-preview-05-06',
+  'gemini-2.5-pro',
   'gemini-3-pro-preview',
 ] as const;
 

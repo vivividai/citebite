@@ -186,9 +186,9 @@ export async function POST(
       );
     }
 
-    // Check if any papers are indexed (vector_status === 'completed')
+    // Check if any papers are indexed (text_vector_status === 'completed')
     const indexedPapers = collectionPapers.filter(
-      p => p?.vector_status === 'completed'
+      p => p?.text_vector_status === 'completed'
     );
 
     if (indexedPapers.length === 0) {

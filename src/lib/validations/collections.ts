@@ -1,7 +1,37 @@
 import { z } from 'zod';
 
 /**
- * Validation schema for collection creation
+ * Validation schema for seed paper collection creation
+ * - Direct paper selection approach (no keyword-based search)
+ * - Research question required for graph expand similarity ranking
+ */
+export const seedPaperCollectionSchema = z.object({
+  name: z
+    .string()
+    .min(1, 'Collection name is required')
+    .max(255, 'Collection name must be less than 255 characters')
+    .trim(),
+  researchQuestion: z
+    .string()
+    .min(10, 'Research question must be at least 10 characters')
+    .max(500, 'Research question must be less than 500 characters')
+    .trim(),
+  seedPaperIds: z
+    .array(z.string())
+    .min(1, 'At least one seed paper is required')
+    .max(10, 'Maximum 10 seed papers allowed'),
+});
+
+/**
+ * TypeScript type for seed paper collection creation
+ */
+export type SeedPaperCollectionInput = z.infer<
+  typeof seedPaperCollectionSchema
+>;
+
+/**
+ * Legacy validation schema for collection creation (deprecated)
+ * Kept for backwards compatibility during migration
  */
 export const createCollectionSchema = z
   .object({

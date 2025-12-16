@@ -84,15 +84,27 @@ export type Database = {
       collection_papers: {
         Row: {
           collection_id: string;
+          degree: number | null;
           paper_id: string;
+          relationship_type: string | null;
+          similarity_score: number | null;
+          source_paper_id: string | null;
         };
         Insert: {
           collection_id: string;
+          degree?: number | null;
           paper_id: string;
+          relationship_type?: string | null;
+          similarity_score?: number | null;
+          source_paper_id?: string | null;
         };
         Update: {
           collection_id?: string;
+          degree?: number | null;
           paper_id?: string;
+          relationship_type?: string | null;
+          similarity_score?: number | null;
+          source_paper_id?: string | null;
         };
         Relationships: [
           {
@@ -109,6 +121,13 @@ export type Database = {
             referencedRelation: 'papers';
             referencedColumns: ['paper_id'];
           },
+          {
+            foreignKeyName: 'collection_papers_source_paper_id_fkey';
+            columns: ['source_paper_id'];
+            isOneToOne: false;
+            referencedRelation: 'papers';
+            referencedColumns: ['paper_id'];
+          },
         ];
       };
       collections: {
@@ -116,10 +135,8 @@ export type Database = {
           candidate_count: number | null;
           copy_count: number | null;
           created_at: string | null;
-          file_search_store_id: string | null;
           filters: Json | null;
           id: string;
-          insight_summary: Json | null;
           is_public: boolean | null;
           last_updated_at: string | null;
           name: string;
@@ -133,10 +150,8 @@ export type Database = {
           candidate_count?: number | null;
           copy_count?: number | null;
           created_at?: string | null;
-          file_search_store_id?: string | null;
           filters?: Json | null;
           id?: string;
-          insight_summary?: Json | null;
           is_public?: boolean | null;
           last_updated_at?: string | null;
           name: string;
@@ -150,10 +165,8 @@ export type Database = {
           candidate_count?: number | null;
           copy_count?: number | null;
           created_at?: string | null;
-          file_search_store_id?: string | null;
           filters?: Json | null;
           id?: string;
-          insight_summary?: Json | null;
           is_public?: boolean | null;
           last_updated_at?: string | null;
           name?: string;
@@ -250,19 +263,85 @@ export type Database = {
           },
         ];
       };
+      paper_chunks: {
+        Row: {
+          chunk_index: number;
+          chunk_type: string;
+          content: string;
+          content_tsv: unknown;
+          created_at: string | null;
+          embedding: string;
+          figure_caption: string | null;
+          figure_description: string | null;
+          figure_number: string | null;
+          id: string;
+          image_storage_path: string | null;
+          mentioned_in_chunk_ids: string[] | null;
+          page_number: number | null;
+          paper_id: string;
+          referenced_figures: string[] | null;
+          token_count: number;
+        };
+        Insert: {
+          chunk_index: number;
+          chunk_type?: string;
+          content: string;
+          content_tsv?: unknown;
+          created_at?: string | null;
+          embedding: string;
+          figure_caption?: string | null;
+          figure_description?: string | null;
+          figure_number?: string | null;
+          id?: string;
+          image_storage_path?: string | null;
+          mentioned_in_chunk_ids?: string[] | null;
+          page_number?: number | null;
+          paper_id: string;
+          referenced_figures?: string[] | null;
+          token_count: number;
+        };
+        Update: {
+          chunk_index?: number;
+          chunk_type?: string;
+          content?: string;
+          content_tsv?: unknown;
+          created_at?: string | null;
+          embedding?: string;
+          figure_caption?: string | null;
+          figure_description?: string | null;
+          figure_number?: string | null;
+          id?: string;
+          image_storage_path?: string | null;
+          mentioned_in_chunk_ids?: string[] | null;
+          page_number?: number | null;
+          paper_id?: string;
+          referenced_figures?: string[] | null;
+          token_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'paper_chunks_paper_id_fkey';
+            columns: ['paper_id'];
+            isOneToOne: false;
+            referencedRelation: 'papers';
+            referencedColumns: ['paper_id'];
+          },
+        ];
+      };
       papers: {
         Row: {
           abstract: string | null;
           authors: Json | null;
           citation_count: number | null;
           created_at: string | null;
+          image_vector_status: string | null;
           open_access_pdf_url: string | null;
           paper_id: string;
           pdf_source: string | null;
           storage_path: string | null;
+          text_vector_status: string | null;
           title: string;
           uploaded_by: string | null;
-          vector_status: string | null;
           venue: string | null;
           year: number | null;
         };
@@ -271,13 +350,14 @@ export type Database = {
           authors?: Json | null;
           citation_count?: number | null;
           created_at?: string | null;
+          image_vector_status?: string | null;
           open_access_pdf_url?: string | null;
           paper_id: string;
           pdf_source?: string | null;
           storage_path?: string | null;
+          text_vector_status?: string | null;
           title: string;
           uploaded_by?: string | null;
-          vector_status?: string | null;
           venue?: string | null;
           year?: number | null;
         };
@@ -286,13 +366,14 @@ export type Database = {
           authors?: Json | null;
           citation_count?: number | null;
           created_at?: string | null;
+          image_vector_status?: string | null;
           open_access_pdf_url?: string | null;
           paper_id?: string;
           pdf_source?: string | null;
           storage_path?: string | null;
+          text_vector_status?: string | null;
           title?: string;
           uploaded_by?: string | null;
-          vector_status?: string | null;
           venue?: string | null;
           year?: number | null;
         };
@@ -332,6 +413,32 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      hybrid_search: {
+        Args: {
+          p_collection_id: string;
+          p_limit?: number;
+          p_query_embedding: string;
+          p_query_text: string;
+          p_semantic_weight?: number;
+        };
+        Returns: {
+          chunk_id: string;
+          chunk_index: number;
+          chunk_type: string;
+          combined_score: number;
+          content: string;
+          figure_caption: string;
+          figure_description: string;
+          figure_number: string;
+          image_storage_path: string;
+          keyword_score: number;
+          mentioned_in_chunk_ids: string[];
+          page_number: number;
+          paper_id: string;
+          referenced_figures: string[];
+          semantic_score: number;
+        }[];
+      };
       update_bulk_upload_file: {
         Args: { p_file_id: string; p_session_id: string; p_update: Json };
         Returns: undefined;

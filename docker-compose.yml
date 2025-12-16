@@ -1,0 +1,44 @@
+# CiteBite Docker Compose
+# Development services for local development
+
+version: '3.8'
+
+services:
+  # Redis for BullMQ job queue
+  redis:
+    image: redis:7-alpine
+    container_name: citebite-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pdffigures2 for figure detection
+  pdffigures2:
+    build:
+      context: ./docker/pdffigures2
+      dockerfile: Dockerfile
+    container_name: citebite-pdffigures2
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./temp:/data
+    environment:
+      - PDFFIGURES2_JAR=/app/pdffigures2.jar
+      - DATA_DIR=/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  redis-data:

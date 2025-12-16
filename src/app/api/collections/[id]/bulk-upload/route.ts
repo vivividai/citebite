@@ -67,7 +67,7 @@ export async function POST(
     // 2. Verify collection ownership
     const { data: collection, error: collectionError } = await supabase
       .from('collections')
-      .select('id, file_search_store_id')
+      .select('id')
       .eq('id', collectionId)
       .eq('user_id', user.id)
       .single();
@@ -80,17 +80,19 @@ export async function POST(
     }
 
     // 3. Get papers in collection
+    // Note: Must specify FK name because collection_papers has two FKs to papers
+    // (paper_id and source_paper_id)
     const adminSupabase = createAdminSupabaseClient();
     const { data: collectionPapers, error: papersError } = await adminSupabase
       .from('collection_papers')
       .select(
         `
         paper_id,
-        papers!inner (
+        papers:papers!collection_papers_paper_id_fkey (
           paper_id,
           title,
           open_access_pdf_url,
-          vector_status,
+          text_vector_status,
           storage_path
         )
       `
@@ -112,7 +114,7 @@ export async function POST(
         paper_id: string;
         title: string;
         open_access_pdf_url: string | null;
-        vector_status: string | null;
+        text_vector_status: string | null;
         storage_path: string | null;
       };
     };
@@ -123,7 +125,7 @@ export async function POST(
       title: cp.papers.title,
       doi: extractDoiFromUrl(cp.papers.open_access_pdf_url),
       external_ids: null,
-      vector_status: cp.papers.vector_status,
+      text_vector_status: cp.papers.text_vector_status,
       storage_path: cp.papers.storage_path,
     }));
 

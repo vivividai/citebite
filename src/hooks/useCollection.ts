@@ -11,10 +11,8 @@ export interface CollectionDetail {
     openAccessOnly?: boolean;
   } | null;
   created_at: string;
-  file_search_store_id: string | null;
   user_id: string;
   is_public: boolean | null;
-  insight_summary: unknown | null;
   last_updated_at: string | null;
   copy_count: number | null;
   totalPapers: number;

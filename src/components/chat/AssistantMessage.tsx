@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, FileText } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -117,16 +117,17 @@ export function AssistantMessage({
           <span className="text-xs text-muted-foreground mt-1">{timeAgo}</span>
         )}
 
-        {/* Show grounding-based sources */}
+        {/* Show unified sources list */}
         {hasGroundingData && groundingChunks && (
           <div className="mt-3 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
               Sources ({groundingChunks.length})
             </p>
             <div className="flex flex-wrap gap-2">
               {groundingChunks.map((chunk, index) => (
                 <button
-                  key={index}
+                  key={`source-${index}`}
                   className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
                   onClick={() => handleSourceClick(chunk, index)}
                 >
@@ -154,7 +155,7 @@ export function AssistantMessage({
         )}
       </div>
 
-      {/* Source Detail Dialog */}
+      {/* Source Detail Dialog (handles both text and figure chunks) */}
       <SourceDetailDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}

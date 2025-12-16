@@ -15,6 +15,7 @@ interface CollectionStatus {
   indexedPapers: number;
   failedPapers: number;
   downloadingPapers: number;
+  processingPapers: number;
   allProcessed: boolean;
 }
 
@@ -43,12 +44,18 @@ export function CollectionProgress({
       indexedPapers: initialIndexed,
       failedPapers: 0,
       downloadingPapers: 0,
+      processingPapers: 0,
       allProcessed: initialIndexed >= initialTotal,
     },
   });
 
-  const { totalPapers, indexedPapers, failedPapers, downloadingPapers } =
-    status;
+  const {
+    totalPapers,
+    indexedPapers,
+    failedPapers,
+    downloadingPapers,
+    processingPapers,
+  } = status;
 
   const progressPercentage =
     totalPapers > 0 ? Math.round((indexedPapers / totalPapers) * 100) : 0;
@@ -60,8 +67,10 @@ export function CollectionProgress({
           <Loader2 className="h-3 w-3 animate-spin text-primary" />
           <span className="text-muted-foreground">
             {downloadingPapers > 0
-              ? `Downloading PDFs... (${downloadingPapers} in progress)`
-              : `Indexing papers... (${indexedPapers}/${totalPapers})`}
+              ? `Downloading PDFs... (${downloadingPapers} pending)`
+              : processingPapers > 0
+                ? `Indexing papers... (${processingPapers} processing)`
+                : `Processing papers... (${indexedPapers}/${totalPapers} complete)`}
           </span>
         </div>
         <span className="text-muted-foreground font-medium">

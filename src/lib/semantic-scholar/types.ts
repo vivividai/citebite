@@ -108,3 +108,102 @@ export interface CacheEntry {
   data: SearchResponse;
   timestamp: number;
 }
+
+/**
+ * Citation context with intent classification
+ */
+export interface CitationContext {
+  context: string;
+  intent: string;
+}
+
+/**
+ * Reference (paper that this paper cites)
+ */
+export interface Reference {
+  contexts?: string[];
+  intents?: string[];
+  contextsWithIntent?: CitationContext[];
+  isInfluential?: boolean;
+  citedPaper: Paper;
+}
+
+/**
+ * Citation (paper that cites this paper)
+ */
+export interface Citation {
+  contexts?: string[];
+  intents?: string[];
+  contextsWithIntent?: CitationContext[];
+  isInfluential?: boolean;
+  citingPaper: Paper;
+}
+
+/**
+ * Response for references endpoint
+ */
+export interface ReferenceBatch {
+  offset: number;
+  next?: number;
+  data: Reference[];
+}
+
+/**
+ * Response for citations endpoint
+ */
+export interface CitationBatch {
+  offset: number;
+  next?: number;
+  data: Citation[];
+}
+
+/**
+ * Options for fetching references/citations
+ */
+export interface RelatedPapersOptions {
+  offset?: number;
+  limit?: number;
+  fields?: string[];
+}
+
+/**
+ * Paper match response from /paper/search/match endpoint
+ * Returns a single paper with the closest title match
+ */
+export interface PaperMatchResponse {
+  paperId: string;
+  title: string;
+  matchScore: number;
+  abstract?: string;
+  authors?: Author[];
+  year?: number;
+  citationCount?: number;
+  venue?: string;
+  publicationTypes?: string[];
+  openAccessPdf?: OpenAccessPdf | null;
+  externalIds?: ExternalIds;
+}
+
+/**
+ * Author with extended information from author search
+ */
+export interface AuthorWithDetails {
+  authorId: string;
+  name: string;
+  affiliations?: string[];
+  homepage?: string;
+  paperCount?: number;
+  citationCount?: number;
+  hIndex?: number;
+  papers?: Paper[];
+}
+
+/**
+ * Response from /author/search endpoint
+ */
+export interface AuthorSearchResponse {
+  total: number;
+  offset: number;
+  next?: number;
+  data: AuthorWithDetails[];
+}

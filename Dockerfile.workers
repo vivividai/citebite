@@ -26,11 +26,11 @@ RUN npm ci --ignore-scripts
 # Copy source code
 COPY . .
 
-# Build TypeScript
+# Build TypeScript (for Next.js, not workers)
 RUN npm run build
 
-# Remove dev dependencies after build
-RUN npm prune --production
+# Note: Keep tsx for running worker scripts
+# tsx is needed because workers use TypeScript directly
 
 # Start workers
 CMD ["npm", "run", "workers"]

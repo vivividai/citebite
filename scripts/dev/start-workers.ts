@@ -10,6 +10,7 @@
 
 // Load environment variables FIRST before importing any modules
 // Must use require() because ES module imports are hoisted
+// In production, env vars are set by Railway/platform, .env.local is optional
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: '.env.local' });
 
@@ -20,7 +21,10 @@ console.log('=================================');
 // Verify Redis connection
 if (!process.env.REDIS_URL) {
   console.error('ERROR: REDIS_URL is not configured in environment variables');
-  console.error('Please set REDIS_URL in .env.local file');
+  console.error('For local development: set REDIS_URL in .env.local');
+  console.error(
+    'For production: set REDIS_URL in Railway/platform environment variables'
+  );
   process.exit(1);
 }
 

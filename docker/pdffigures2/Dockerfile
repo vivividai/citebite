@@ -45,10 +45,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy built JAR from builder (fat JAR includes all dependencies)
-COPY --from=builder /build/pdffigures2/target/scala-2.12/pdffigures2_2.12-0.1.0.jar /app/pdffigures2.jar
+# pdffigures2's build.sbt sets: assemblyOutputPath := file("pdffigures2.jar")
+# So the fat JAR is in the project root, not target/scala-2.12/
+COPY --from=builder /build/pdffigures2/pdffigures2.jar /app/pdffigures2.jar
 
 # Copy HTTP server
-COPY docker/pdffigures2/server.py /app/
+COPY server.py /app/
 
 # Create data directory
 RUN mkdir -p /data

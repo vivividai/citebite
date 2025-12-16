@@ -333,7 +333,7 @@ export function convertToDetectedFigures(
   // Deduplicate: keep only the largest region for each figure number
   const deduplicatedByPage = new Map<number, DetectedFigure[]>();
 
-  for (const [pageNumber, figures] of figuresByPage) {
+  for (const [pageNumber, figures] of Array.from(figuresByPage.entries())) {
     // Group by figure number
     const figuresByNumber = new Map<string, DetectedFigure[]>();
     for (const fig of figures) {
@@ -345,7 +345,9 @@ export function convertToDetectedFigures(
 
     // For each figure number, keep the one with largest area
     const deduplicated: DetectedFigure[] = [];
-    for (const [figureNumber, duplicates] of figuresByNumber) {
+    for (const [figureNumber, duplicates] of Array.from(
+      figuresByNumber.entries()
+    )) {
       if (duplicates.length === 1) {
         deduplicated.push(duplicates[0]);
       } else {
@@ -370,7 +372,9 @@ export function convertToDetectedFigures(
   const allFigureNumbers = new Set<string>();
   const finalResult = new Map<number, DetectedFigure[]>();
 
-  for (const [pageNumber, figures] of deduplicatedByPage) {
+  for (const [pageNumber, figures] of Array.from(
+    deduplicatedByPage.entries()
+  )) {
     const uniqueFigures: DetectedFigure[] = [];
     for (const fig of figures) {
       if (!allFigureNumbers.has(fig.figureNumber)) {

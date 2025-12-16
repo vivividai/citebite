@@ -44,14 +44,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy built JAR from builder
+# Copy built JAR from builder (fat JAR includes all dependencies)
 COPY --from=builder /build/pdffigures2/target/scala-2.12/pdffigures2_2.12-0.1.0.jar /app/pdffigures2.jar
 
-# Also copy dependencies from target/bg-jobs
-COPY --from=builder /build/pdffigures2/target/bg-jobs/sbt_4a3a7cdb/target /app/lib
-
 # Copy HTTP server
-COPY server.py /app/
+COPY docker/pdffigures2/server.py /app/
 
 # Create data directory
 RUN mkdir -p /data

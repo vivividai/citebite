@@ -47,7 +47,7 @@
     "date-fns": "^4.1.0",
     "ioredis": "^5.8.2",
     "lucide-react": "^0.553.0",
-    "next": "14.2.33",
+    "next": "^14.2.35",
     "pdf-parse": "^1.1.4",
     "pdf-poppler": "^0.2.3",
     "pdfjs-dist": "^5.4.449",
